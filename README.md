@@ -155,9 +155,14 @@ Test that rate limiting is properly enforced:
 
 The test script will:
 - Send rapid requests for 30 seconds
-- Show successful vs rate-limited requests
+- Show successful vs rate-limited requests  
 - Verify the burst allowance (default: 20 requests)
 - Optionally test that API keys bypass rate limiting
+
+**Note**: Rate limited requests return HTTP 503 by default. To change this to HTTP 429 (Too Many Requests), run:
+```bash
+./fix-429-status-safe.sh your-domain.com
+```
 
 ## Monitoring
 
