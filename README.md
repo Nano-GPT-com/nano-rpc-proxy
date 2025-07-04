@@ -31,41 +31,42 @@ npm start
 
 ### Production Deployment
 
-1. **Build the Docker image:**
+#### Option 1: Standard HTTP Deployment
 ```bash
-docker build -t nano-rpc-proxy:latest .
-```
-
-2. **Deploy on your server:**
-```bash
-# Copy files to server
-scp -r . nanogpt@130.185.119.52:~/nano-rpc-proxy/
-
-# SSH to server
-ssh nanogpt@130.185.119.52
-
-# Navigate to directory
-cd ~/nano-rpc-proxy
-
 # Build and run
 docker build -t nano-rpc-proxy:latest .
 docker-compose -f docker-compose.production.yml up -d
 ```
 
-3. **Update nginx configuration:**
+#### Option 2: HTTPS/SSL Deployment (Recommended)
+
+1. **Initial SSL Setup:**
 ```bash
-# Backup current config
-sudo cp /etc/nginx/sites-available/nano-rpc /etc/nginx/sites-available/nano-rpc.backup
+# SSH to server
+ssh nanogpt@130.185.119.52
+cd ~/nano-rpc-proxy
 
-# Update the config (copy content from nginx-config-updated.conf)
-sudo nano /etc/nginx/sites-available/nano-rpc
-
-# Test nginx config
-sudo nginx -t
-
-# Reload nginx
-sudo systemctl reload nginx
+# Run SSL setup (replace with your email)
+chmod +x setup-ssl.sh
+./setup-ssl.sh rpc.nano-gpt.com admin@nano-gpt.com
 ```
+
+2. **Setup Auto-Renewal:**
+```bash
+# Setup automatic certificate renewal
+./setup-cron.sh
+```
+
+3. **Future Deployments:**
+```bash
+# Use the SSL deployment script
+./deploy-ssl.sh
+```
+
+**Prerequisites for SSL:**
+- Domain `rpc.nano-gpt.com` must point to your server IP
+- Ports 80 and 443 must be open
+- No other services using these ports
 
 ## Configuration
 
