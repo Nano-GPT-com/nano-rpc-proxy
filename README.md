@@ -47,7 +47,6 @@ ssh user@your-server
 cd ~/nano-rpc-proxy
 
 # Run SSL setup (replace with your domain and email)
-chmod +x setup-ssl.sh
 ./setup-ssl.sh your-domain.com your-email@example.com
 ```
 
@@ -55,12 +54,6 @@ chmod +x setup-ssl.sh
 ```bash
 # Setup automatic certificate renewal
 ./setup-cron.sh
-```
-
-3. **Future Deployments:**
-```bash
-# Use the SSL deployment script
-./deploy-ssl.sh
 ```
 
 **Prerequisites for SSL:**
@@ -173,13 +166,23 @@ docker-compose logs -f nano-rpc-proxy
 
 ## Maintenance
 
-### Quick Deployment (Recommended)
+### Available Scripts
+
 ```bash
 # Deploy latest version (pulls code, builds, restarts)
 ./deploy.sh
 
-# Check service status and health
+# Check service status and health  
 ./status.sh
+
+# Test rate limiting functionality
+./test-rate-limit.sh https://your-domain.com
+
+# Fix nginx to return 429 instead of 503 for rate limits
+./fix-429-status-safe.sh your-domain.com
+
+# Restore stable configuration if issues occur
+./restore-working-config.sh your-domain.com
 ```
 
 ### Manual Commands
