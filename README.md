@@ -118,6 +118,8 @@ All state-modifying commands (like `send`, `receive`, `change`) and sensitive no
 
 ## Testing
 
+### Basic Tests
+
 ```bash
 # Test without API key (allowed action)
 curl -X POST http://localhost:3000 \
@@ -138,6 +140,24 @@ curl -X POST http://localhost:3000 \
 # Health check
 curl http://localhost:3000/health
 ```
+
+### Rate Limiting Test
+
+Test that rate limiting is properly enforced:
+
+```bash
+# Test rate limiting (public access)
+./test-rate-limit.sh https://your-domain.com
+
+# Test with API key (should bypass rate limiting)
+./test-rate-limit.sh https://your-domain.com your-api-key
+```
+
+The test script will:
+- Send rapid requests for 30 seconds
+- Show successful vs rate-limited requests
+- Verify the burst allowance (default: 20 requests)
+- Optionally test that API keys bypass rate limiting
 
 ## Monitoring
 
