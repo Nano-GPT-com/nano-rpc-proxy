@@ -55,8 +55,8 @@ const ALLOWED_ACTIONS = [
   'version',                  // Get node version
   
   // Utility commands (safe)
-  'key_create',               // Generate random keypair (doesn't affect node)
-  'key_expand',               // Derive public key and account
+  // 'key_create',            // REMOVED: Could derive from node seed
+  // 'key_expand',            // REMOVED: Could expose key derivation
   'pending',                  // Get pending blocks
   'pending_exists',           // Check if pending block exists
   'process',                  // Process a block (read-only check)

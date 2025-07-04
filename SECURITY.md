@@ -19,6 +19,10 @@ The following commands are **BLOCKED** without proper API key authentication as 
 - `change` - Change account representative
 - `account_create` - Create new accounts
 
+### Key Generation (HIGH RISK)
+- `key_create` - Could derive keys from node seed
+- `key_expand` - Could expose key derivation patterns
+
 ### Node Control (HIGH RISK)
 - `stop` - Stop the node
 - `bootstrap` - Control bootstrap operations

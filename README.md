@@ -101,7 +101,6 @@ The proxy allows **45+ safe read-only commands** without authentication, includi
 - `active_difficulty`, `frontier_count`
 
 ### Utility Commands
-- `key_create`, `key_expand` (generate keypairs locally)
 - `pending`, `receivable`, `unchecked` operations
 - `nano_to_raw`, `raw_to_nano` (unit conversions)
 - `validate_account_number`, `work_validate`
