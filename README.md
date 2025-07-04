@@ -1,6 +1,10 @@
 # Nano RPC Proxy
 
-A Docker-based proxy for Nano RPC with API key authentication and action filtering.
+[![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+[![Node.js](https://img.shields.io/badge/node.js-6DA55F?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Nano](https://img.shields.io/badge/Nano-4A90E2?style=for-the-badge&logo=nano&logoColor=white)](https://nano.org/)
+
+A secure, production-ready proxy for Nano RPC nodes with API key authentication and granular action filtering.
 
 ## Features
 
