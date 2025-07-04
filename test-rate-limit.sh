@@ -32,7 +32,7 @@ make_request() {
             ((SUCCESS++))
             echo -n "✅"
             ;;
-        429)
+        429|503)
             ((RATE_LIMITED++))
             echo -n "🚫"
             ;;
