@@ -7,9 +7,15 @@ set -e
 
 echo "🔒 Setting up SSL with existing nginx..."
 
-# Check if domain is provided
-DOMAIN=${1:-rpc.nano-gpt.com}
-EMAIL=${2:-admin@nano-gpt.com}
+# Check if domain and email are provided
+if [ -z "$1" ] || [ -z "$2" ]; then
+    echo "Usage: $0 <domain> <email>"
+    echo "Example: $0 example.com admin@example.com"
+    exit 1
+fi
+
+DOMAIN=$1
+EMAIL=$2
 
 echo "📧 Using email: $EMAIL"
 echo "🌐 Using domain: $DOMAIN"

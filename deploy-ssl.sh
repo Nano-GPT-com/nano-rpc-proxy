@@ -28,5 +28,5 @@ echo "📝 Recent logs:"
 docker-compose -f docker-compose.ssl.yml logs --tail=10
 
 echo "✅ SSL deployment complete!"
-echo "🔗 HTTPS endpoint: https://rpc.nano-gpt.com"
-echo "🏥 Health check: curl https://rpc.nano-gpt.com/health"
+echo "🏥 Health check: curl http://localhost:3000/health"
+echo "📝 Note: Ensure your domain points to this server and ports 80/443 are open"

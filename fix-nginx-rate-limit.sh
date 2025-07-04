@@ -5,7 +5,14 @@
 
 set -e
 
-DOMAIN=${1:-rpc.nano-gpt.com}
+# Check if domain is provided
+if [ -z "$1" ]; then
+    echo "Usage: $0 <domain>"
+    echo "Example: $0 example.com"
+    exit 1
+fi
+
+DOMAIN=$1
 
 echo "🔧 Fixing nginx rate limiting syntax..."
 

@@ -23,14 +23,14 @@ docker-compose -f docker-compose.ssl.yml up -d nano-rpc-proxy
 echo "📊 Checking service status..."
 docker ps | grep nano-rpc-proxy-app || echo "❌ Container not found"
 
-# Test SSL endpoint
-echo "🔍 Testing SSL endpoint..."
-curl -I https://rpc.nano-gpt.com/health 2>/dev/null | head -1 || echo "❌ SSL endpoint not responding"
+# Test health endpoint
+echo "🔍 Testing health endpoint..."
+curl -I http://localhost:3000/health 2>/dev/null | head -1 || echo "❌ Health endpoint not responding"
 
 # Show logs
 echo "📝 Recent logs:"
 docker logs --tail=10 nano-rpc-proxy-app
 
-echo "✅ SSL deployment complete!"
-echo "🔗 HTTPS endpoint: https://rpc.nano-gpt.com"
-echo "🏥 Health check: curl https://rpc.nano-gpt.com/health"
+echo "✅ Deployment complete!"
+echo "🏥 Health check: curl http://localhost:3000/health"
+echo "📝 Note: Configure your nginx/reverse proxy to expose this service"

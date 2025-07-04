@@ -42,13 +42,13 @@ docker-compose -f docker-compose.production.yml up -d
 
 1. **Initial SSL Setup:**
 ```bash
-# SSH to server
-ssh nanogpt@130.185.119.52
+# SSH to your server
+ssh user@your-server
 cd ~/nano-rpc-proxy
 
-# Run SSL setup (replace with your email)
+# Run SSL setup (replace with your domain and email)
 chmod +x setup-ssl.sh
-./setup-ssl.sh rpc.nano-gpt.com admin@nano-gpt.com
+./setup-ssl.sh your-domain.com your-email@example.com
 ```
 
 2. **Setup Auto-Renewal:**
@@ -64,16 +64,23 @@ chmod +x setup-ssl.sh
 ```
 
 **Prerequisites for SSL:**
-- Domain `rpc.nano-gpt.com` must point to your server IP
+- Your domain must point to your server IP
 - Ports 80 and 443 must be open
 - No other services using these ports
 
 ## Configuration
 
+Create a `.env` file based on `.env.example`:
+
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
+
 Environment variables:
 - `PORT`: Port for the proxy server (default: 3000)
 - `NANO_RPC_URL`: URL of your Nano RPC node (default: http://127.0.0.1:7076)
-- `API_KEY`: API key for full access
+- `API_KEY`: API key for full access (generate with: `openssl rand -hex 32`)
 
 ## Security Model
 
@@ -113,23 +120,23 @@ All state-modifying commands (like `send`, `receive`, `change`) and sensitive no
 
 ```bash
 # Test without API key (allowed action)
-curl -X POST http://130.185.119.52 \
+curl -X POST http://localhost:3000 \
   -H "Content-Type: application/json" \
   -d '{"action": "block_count"}'
 
 # Test without API key (blocked action)
-curl -X POST http://130.185.119.52 \
+curl -X POST http://localhost:3000 \
   -H "Content-Type: application/json" \
   -d '{"action": "send"}'
 
 # Test with API key (full access)
-curl -X POST http://130.185.119.52 \
+curl -X POST http://localhost:3000 \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: 5e3ff8205b57fa3495bde592f07a0a06b395f97997555a8ce104347f651d63eb" \
+  -H "X-API-Key: your-api-key-here" \
   -d '{"action": "send", ...}'
 
 # Health check
-curl http://130.185.119.52:3000/health
+curl http://localhost:3000/health
 ```
 
 ## Monitoring
