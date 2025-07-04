@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  nano-rpc-proxy:
+    build: .
+    container_name: nano-rpc-proxy
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NANO_RPC_URL=http://host.docker.internal:7076  # Use host.docker.internal for Mac/Windows, or actual IP for Linux
+      - API_KEY=5e3ff8205b57fa3495bde592f07a0a06b395f97997555a8ce104347f651d63eb
+    networks:
+      - nano-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  nano-network:
+    driver: bridge
