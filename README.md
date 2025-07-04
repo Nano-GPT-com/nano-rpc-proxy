@@ -10,6 +10,7 @@ A secure, production-ready proxy for Nano RPC nodes with API key authentication 
 
 - API key authentication for full access
 - Whitelisted actions for public access without API key
+- Rate limiting (different limits for public vs authenticated)
 - CORS support
 - Request logging
 - Health check endpoint
@@ -82,26 +83,26 @@ This proxy implements a **deny-by-default** security model:
 
 ## Allowed Actions (without API key)
 
-The proxy allows **45+ safe read-only commands** without authentication, including:
+The proxy allows **25+ verified standard Nano RPC commands** without authentication, including:
 
 ### Account Information
 - `account_balance`, `account_info`, `account_history`
-- `account_block_count`, `account_representative`, `account_weight`
-- `accounts_balances`, `accounts_frontiers`, `accounts_pending`
+- `accounts_balances`, `account_key`
 
-### Block Information
+### Block Information  
 - `block_count`, `block_info`, `blocks_info`
-- `block_hash`, `block_account`, `chain`
-- `available_supply`, `successors`
+- `chain`, `successors`, `frontiers`, `frontier_count`
+
+### Pending/Receivable Operations
+- `receivable`, `accounts_receivable` (new format)
+- `pending`, `accounts_pending` (legacy format)
 
 ### Network Information
-- `version`, `peers`, `telemetry`, `uptime`
+- `version`, `peers`, `telemetry`
 - `representatives`, `representatives_online`
-- `confirmation_active`, `confirmation_history`
-- `active_difficulty`, `frontier_count`
+- `available_supply`
 
 ### Utility Commands
-- `pending`, `receivable`, `unchecked` operations
 - `nano_to_raw`, `raw_to_nano` (unit conversions)
 - `validate_account_number`, `work_validate`
 

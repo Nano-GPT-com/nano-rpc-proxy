@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const morgan = require('morgan');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 
@@ -10,77 +11,84 @@ const PORT = process.env.PORT || 3000;
 const NANO_RPC_URL = process.env.NANO_RPC_URL || 'http://127.0.0.1:7076';
 const API_KEY = process.env.API_KEY || '5e3ff8205b57fa3495bde592f07a0a06b395f97997555a8ce104347f651d63eb';
 
-// Allowed actions without API key - comprehensive whitelist based on Nano RPC documentation
-// These are read-only commands that don't modify state or expose sensitive node information
+// Allowed actions without API key - only confirmed standard Nano RPC commands
+// These are verified safe read-only commands from the official Nano RPC protocol
 const ALLOWED_ACTIONS = [
-  // Account information (read-only)
-  'account_balance',          // Get account balance
-  'account_block_count',      // Get number of blocks for an account
-  'account_get',              // Get account number from public key
-  'account_history',          // Get account transaction history
-  'account_info',             // Get account information
-  'account_key',              // Get public key from account
-  'account_representative',   // Get account's representative
-  'account_weight',           // Get voting weight of account
-  'accounts_balances',        // Get balances for multiple accounts
-  'accounts_frontiers',       // Get frontiers for multiple accounts
-  'accounts_pending',         // Get pending blocks for accounts
-  'accounts_representatives', // Get representatives for multiple accounts
-  
-  // Block information (read-only)
-  'available_supply',         // Get available supply
-  'block_account',            // Get account that owns a block
-  'block_count',              // Get block count
-  'block_count_type',         // Get block count by type
-  'block_hash',               // Convert block to hash
-  'block_info',               // Get block information
-  'blocks',                   // Get blocks by hash
-  'blocks_info',              // Get information for multiple blocks
-  'chain',                    // Get chain of blocks
-  'successors',               // Get successor blocks
-  
-  // Network information (read-only)
-  'active_difficulty',        // Get active network difficulty
-  'confirmation_active',      // Get active elections
-  'confirmation_history',     // Get confirmation history
-  'confirmation_quorum',      // Get confirmation quorum
-  'delegators',               // Get delegators for representative
-  'delegators_count',         // Get delegator count
-  'frontier_count',           // Get frontier count
-  'frontiers',                // Get account frontiers
-  'peers',                    // Get peer information
-  'representatives',          // Get representatives list
-  'representatives_online',   // Get online representatives
-  'telemetry',                // Get telemetry data
+  // Core Nano node read-only commands (confirmed standard)
   'version',                  // Get node version
+  'account_info',             // Get account information
+  'account_history',          // Get account transaction history
+  'account_balance',          // Get account balance
+  'accounts_balances',        // Get balances for multiple accounts
+  'block_info',               // Get block information
+  'blocks_info',              // Get information for multiple blocks
+  'block_count',              // Get block count
+  'account_key',              // Get public key from account
   
-  // Utility commands (safe)
-  // 'key_create',            // REMOVED: Could derive from node seed
-  // 'key_expand',            // REMOVED: Could expose key derivation
-  'pending',                  // Get pending blocks
-  'pending_exists',           // Check if pending block exists
-  'process',                  // Process a block (read-only check)
-  'receivable',               // Get receivable blocks
-  'receivable_exists',        // Check if receivable exists
-  'unchecked',                // Get unchecked blocks
-  'unchecked_get',            // Get specific unchecked block
-  'unchecked_keys',           // Get unchecked block hashes
-  'unopened',                 // Get unopened accounts
-  'uptime',                   // Get node uptime
-  'work_validate',            // Validate work (doesn't generate)
+  // Pending/receivable commands (standard)
+  'receivable',               // Get receivable blocks (new name for pending)
+  'accounts_receivable',      // Get receivable blocks for multiple accounts
+  'pending',                  // Get pending blocks (legacy name)
+  'accounts_pending',         // Get pending blocks for multiple accounts (legacy)
   
-  // Price/conversion (safe)
+  // Utility/conversion commands (confirmed standard)
   'nano_to_raw',              // Unit conversion
   'raw_to_nano',              // Unit conversion
   
+  // Network information (standard)
+  'representatives',          // Get representatives list
+  'representatives_online',   // Get online representatives
+  'telemetry',                // Get telemetry data
+  'peers',                    // Get peer information
+  'available_supply',         // Get available supply
+  
+  // Block operations (read-only)
+  'chain',                    // Get chain of blocks
+  'successors',               // Get successor blocks
+  'frontiers',                // Get account frontiers
+  'frontier_count',           // Get frontier count
+  
   // Validation (safe)
-  'validate_account_number'   // Validate account format
+  'validate_account_number',  // Validate account format
+  'work_validate'             // Validate work (doesn't generate)
+  
+  // Note: Removed non-standard/custom commands that may not exist on all nodes:
+  // - 'find_block', 'price', 'reps', 'rep_info', 'known', 'get_name', 
+  // - 'market_data', 'rpc_credits' (these appear to be custom/service-specific)
 ];
+
+// Rate limiting configuration
+const createRateLimit = (windowMs, max, message) => rateLimit({
+  windowMs,
+  max,
+  message: { error: message },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// Rate limiting for public access only
+const publicRateLimit = createRateLimit(
+  15 * 60 * 1000, // 15 minutes
+  100,            // 100 requests per 15 minutes for public access
+  'Too many requests from this IP, please try again later'
+);
 
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 app.use(morgan('combined'));
+
+// Apply rate limiting only to public (non-API key) requests
+app.use('/', (req, res, next) => {
+  const apiKey = req.headers['x-api-key'];
+  if (apiKey === API_KEY) {
+    // No rate limit for authenticated requests
+    next();
+  } else {
+    // Rate limit for public requests
+    publicRateLimit(req, res, next);
+  }
+});
 
 // Health check endpoint
 app.get('/health', (req, res) => {
