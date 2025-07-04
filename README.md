@@ -140,16 +140,30 @@ docker-compose logs -f nano-rpc-proxy
 
 ## Maintenance
 
+### Quick Deployment (Recommended)
+```bash
+# Deploy latest version (pulls code, builds, restarts)
+./deploy.sh
+
+# Check service status and health
+./status.sh
+```
+
+### Manual Commands
 ```bash
 # Stop the service
-docker-compose down
+docker-compose -f docker-compose.production.yml down
 
-# Update and restart
+# Update and restart manually
 git pull
-docker-compose up -d --build
+docker build -t nano-rpc-proxy:latest .
+docker-compose -f docker-compose.production.yml up -d
 
 # View container status
 docker ps
+
+# View logs
+docker logs -f nano-rpc-proxy
 
 # Clean up old images
 docker image prune -a
