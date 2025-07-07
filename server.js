@@ -19,25 +19,34 @@ const ALLOWED_ACTIONS = [
   'account_info',             // Get account information
   'account_history',          // Get account transaction history
   'account_balance',          // Get account balance
+  'account_representative',   // Get account representative
+  'account_weight',           // Get account weight
   'accounts_balances',        // Get balances for multiple accounts
+  'accounts_frontiers',       // Get frontiers for multiple accounts
   'block_info',               // Get block information
+  'block_account',            // Get account from block hash
   'blocks_info',              // Get information for multiple blocks
   'block_count',              // Get block count
   'account_key',              // Get public key from account
   
   // Pending/receivable commands (standard)
   'receivable',               // Get receivable blocks (new name for pending)
+  'receivable_exists',        // Check if receivable block exists
   'accounts_receivable',      // Get receivable blocks for multiple accounts
   'pending',                  // Get pending blocks (legacy name)
+  'pending_exists',           // Check if pending block exists (legacy)
   'accounts_pending',         // Get pending blocks for multiple accounts (legacy)
   
   // Utility/conversion commands (confirmed standard)
   'nano_to_raw',              // Unit conversion
   'raw_to_nano',              // Unit conversion
+  'key_create',               // Generate random key pair
   
   // Network information (standard)
   'representatives',          // Get representatives list
   'representatives_online',   // Get online representatives
+  'confirmation_quorum',      // Get confirmation quorum info
+  'delegators',               // Get delegators for representative
   'telemetry',                // Get telemetry data
   'peers',                    // Get peer information
   'available_supply',         // Get available supply
@@ -50,7 +59,10 @@ const ALLOWED_ACTIONS = [
   
   // Validation (safe)
   'validate_account_number',  // Validate account format
-  'work_validate'             // Validate work (doesn't generate)
+  'work_validate',            // Validate work (doesn't generate)
+  
+  // Deprecated but still functional
+  'active_difficulty'         // Get active difficulty (deprecated)
   
   // Note: Removed non-standard/custom commands that may not exist on all nodes:
   // - 'find_block', 'price', 'reps', 'rep_info', 'known', 'get_name', 
