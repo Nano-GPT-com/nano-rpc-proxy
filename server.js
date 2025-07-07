@@ -61,6 +61,9 @@ const ALLOWED_ACTIONS = [
   'validate_account_number',  // Validate account format
   'work_validate',            // Validate work (doesn't generate)
   
+  // Block processing (write operation - use with caution)
+  'process',                  // Process/submit blocks to network
+  
   // Deprecated but still functional
   'active_difficulty'         // Get active difficulty (deprecated)
   
