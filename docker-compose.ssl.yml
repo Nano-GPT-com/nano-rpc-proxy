@@ -7,8 +7,10 @@ services:
     restart: unless-stopped
     environment:
       - PORT=3000
-      - NANO_RPC_URL=http://127.0.0.1:7076
+      - NANO_RPC_URL=http://host.docker.internal:7076
       - API_KEY=${API_KEY:-5e3ff8205b57fa3495bde592f07a0a06b395f97997555a8ce104347f651d63eb}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - nano-network
 
