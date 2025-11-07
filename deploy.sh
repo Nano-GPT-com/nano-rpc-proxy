@@ -13,7 +13,7 @@ echo "🚀 Nano RPC Proxy - Universal Deployment"
 echo "========================================"
 
 echo "🧾 Ensuring SSL configuration uses domain: $DOMAIN"
-python3 - <<'PY'
+DOMAIN="$DOMAIN" python3 - <<'PY'
 import os, re
 from pathlib import Path
 
