@@ -23,8 +23,6 @@ services:
     network_mode: host
     depends_on:
       - nano-rpc-proxy
-    networks:
-      - nano-network
 
   certbot:
     image: certbot/certbot
@@ -46,7 +44,3 @@ services:
       - DOCKER_HOST=unix:///var/run/docker.sock
     command: sh -c "while :; do sleep 12h & wait $${!}; certbot renew --quiet && docker kill --signal=HUP nano-rpc-nginx; done"
     restart: unless-stopped
-
-networks:
-  nano-network:
-    driver: bridge
