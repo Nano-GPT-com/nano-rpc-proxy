@@ -12,6 +12,47 @@ API_KEY="5e3ff8205b57fa3495bde592f07a0a06b395f97997555a8ce104347f651d63eb"
 echo "🚀 Nano RPC Proxy - Universal Deployment"
 echo "========================================"
 
+echo "🧾 Ensuring SSL configuration uses domain: $DOMAIN"
+python3 - <<'PY'
+import os, re
+from pathlib import Path
+
+domain = os.environ["DOMAIN"]
+
+def rewrite(path):
+    p = Path(path)
+    if not p.exists():
+        return False
+    original = p.read_text()
+    updated = original
+    updated = re.sub(r"server_name\s+[^;]+;", f"server_name {domain};", updated)
+    updated = re.sub(r"/etc/letsencrypt/live/[^/]+/fullchain\.pem", f"/etc/letsencrypt/live/{domain}/fullchain.pem", updated)
+    updated = re.sub(r"/etc/letsencrypt/live/[^/]+/privkey\.pem", f"/etc/letsencrypt/live/{domain}/privkey.pem", updated)
+    if updated != original:
+        p.write_text(updated)
+        return True
+    return False
+
+changed_ssl = rewrite("nginx/ssl.conf")
+
+compose_path = Path("docker-compose.ssl.yml")
+if compose_path.exists():
+    data = compose_path.read_text()
+    updated = re.sub(r"(-d\s+)[^\s]+", rf"\1{domain}", data)
+    if updated != data:
+        compose_path.write_text(updated)
+        changed_compose = True
+    else:
+        changed_compose = False
+else:
+    changed_compose = False
+
+if changed_ssl or changed_compose:
+    print("✅ SSL config updated for current domain")
+else:
+    print("✅ SSL config already matched domain")
+PY
+
 # Step 1: Pull latest code
 echo "📥 Pulling latest code..."
 git pull
