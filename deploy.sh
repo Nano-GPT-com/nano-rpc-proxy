@@ -36,6 +36,23 @@ else
     echo "ℹ️  No SSL setup detected"
 fi
 
+# Step 2.5: Attempt to auto-start Docker SSL stack if it's missing
+if [ "$DOCKER_SSL" = false ]; then
+    echo "⚠️  nginx SSL container not running - attempting automatic start..."
+    if docker-compose -f docker-compose.ssl.yml config >/dev/null 2>&1; then
+        docker-compose -f docker-compose.ssl.yml up -d nginx-ssl >/dev/null 2>&1 || true
+        sleep 3
+        if docker ps | grep -q "nano-rpc-nginx"; then
+            echo "✅ nginx SSL container started successfully"
+            DOCKER_SSL=true
+        else
+            echo "❌ Unable to start nginx SSL container automatically"
+        fi
+    else
+        echo "❌ SSL docker-compose configuration invalid - skipping auto-start"
+    fi
+fi
+
 # Step 3: Fix system nginx rate limiting (if needed)
 if [ "$SYSTEM_SSL" = true ] || [ -f "/etc/nginx/nginx.conf" ]; then
     echo "🔧 Fixing system nginx rate limiting..."
