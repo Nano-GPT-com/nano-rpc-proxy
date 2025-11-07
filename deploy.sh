@@ -53,6 +53,18 @@ if [ "$DOCKER_SSL" = false ]; then
     fi
 fi
 
+# Validate certificate path if Docker SSL stack is active
+CERT_PATH="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+if [ "$DOCKER_SSL" = true ]; then
+    if [ -f "$CERT_PATH" ]; then
+        echo "🔐 SSL certificate found at $CERT_PATH"
+    else
+        echo "❌ Expected SSL certificate not found at $CERT_PATH"
+        echo "ℹ️  Falling back to HTTP-only mode. Run ./setup-ssl.sh $DOMAIN <email> to fix SSL."
+        DOCKER_SSL=false
+    fi
+fi
+
 # Step 3: Fix system nginx rate limiting (if needed)
 if [ "$SYSTEM_SSL" = true ] || [ -f "/etc/nginx/nginx.conf" ]; then
     echo "🔧 Fixing system nginx rate limiting..."
@@ -87,8 +99,7 @@ docker build -t nano-rpc-proxy:latest .
 # Step 5: Deploy based on setup
 if [ "$DOCKER_SSL" = true ]; then
     echo "🐳 Deploying with Docker SSL..."
-    docker-compose -f docker-compose.ssl.yml down 2>/dev/null || true
-    docker-compose -f docker-compose.ssl.yml up -d
+    docker-compose -f docker-compose.ssl.yml up -d --force-recreate
     ENDPOINT="https://$DOMAIN"
     
 elif [ "$SYSTEM_SSL" = true ] && [ "$HAS_CERTS" = true ]; then
