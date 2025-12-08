@@ -10,7 +10,9 @@ services:
     environment:
       - PORT=3000
       - NANO_RPC_URL=http://host.docker.internal:7076  # Use host.docker.internal for Mac/Windows, or actual IP for Linux
-      - API_KEY=5e3ff8205b57fa3495bde592f07a0a06b395f97997555a8ce104347f651d63eb
+      - API_KEY=${API_KEY}
+      - ZANO_RPC_URL=http://host.docker.internal:11211/json_rpc
+      - ZANO_API_KEY=${ZANO_API_KEY}
     networks:
       - nano-network
     logging:

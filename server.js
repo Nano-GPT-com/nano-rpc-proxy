@@ -9,7 +9,66 @@ const app = express();
 // Configuration from environment variables
 const PORT = process.env.PORT || 3000;
 const NANO_RPC_URL = process.env.NANO_RPC_URL || 'http://127.0.0.1:7076';
-const API_KEY = process.env.API_KEY || '5e3ff8205b57fa3495bde592f07a0a06b395f97997555a8ce104347f651d63eb';
+const API_KEY = (process.env.API_KEY || '').trim();
+const ZANO_RPC_URL = process.env.ZANO_RPC_URL || 'http://127.0.0.1:11211/json_rpc';
+const ZANO_API_KEY = (process.env.ZANO_API_KEY || '').trim();
+const ZANO_REQUIRE_API_KEY = true; // Always enforce API key for Zano
+const ZANO_INTERNAL_ONLY = process.env.ZANO_INTERNAL_ONLY !== 'false';
+const DEFAULT_ALLOWED_ZANO_METHODS = [
+  'make_integrated_address',
+  'get_balance',
+  'get_payments'
+];
+const ZANO_ALLOWED_METHODS = (process.env.ZANO_ALLOWED_METHODS || '')
+  .split(',')
+  .map((method) => method.trim())
+  .filter(Boolean);
+
+if (!API_KEY) {
+  console.warn('API_KEY is not set; only whitelisted Nano actions will be accessible without authentication.');
+}
+
+if (ZANO_REQUIRE_API_KEY && !ZANO_API_KEY) {
+  console.warn('ZANO_REQUIRE_API_KEY is true but ZANO_API_KEY is not set; /zano requests will be rejected until configured.');
+}
+
+if (ZANO_ALLOWED_METHODS.length === 0) {
+  ZANO_ALLOWED_METHODS.push(...DEFAULT_ALLOWED_ZANO_METHODS);
+}
+
+const PRIVATE_IP_PATTERNS = [
+  /^127\./,
+  /^10\./,
+  /^192\.168\./,
+  /^172\.(1[6-9]|2\d|3[0-1])\./,
+  /^::1$/,
+  /^fc00:/i,
+  /^fd00:/i
+];
+
+const normalizeIp = (ip) => {
+  if (!ip) return '';
+  return ip.replace(/^::ffff:/, '');
+};
+
+const isPrivateIp = (ip) => {
+  const normalized = normalizeIp(ip);
+  return PRIVATE_IP_PATTERNS.some((pattern) => pattern.test(normalized));
+};
+
+const getClientIp = (req) => {
+  const directIp = req.socket?.remoteAddress || req.connection?.remoteAddress || req.ip;
+  const normalizedDirectIp = normalizeIp(directIp);
+
+  if (isPrivateIp(normalizedDirectIp)) {
+    const forwarded = (req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    if (forwarded) {
+      return normalizeIp(forwarded);
+    }
+  }
+
+  return normalizedDirectIp;
+};
 
 // Allowed actions without API key - only confirmed standard Nano RPC commands
 // These are verified safe read-only commands from the official Nano RPC protocol
@@ -95,6 +154,10 @@ app.use(morgan('combined'));
 
 // Apply rate limiting only to public (non-API key) requests
 app.use('/', (req, res, next) => {
+  if (req.path.startsWith('/zano')) {
+    return next();
+  }
+
   const apiKey = req.headers['x-api-key'];
   if (apiKey === API_KEY) {
     // No rate limit for authenticated requests
@@ -177,6 +240,76 @@ app.post('/', async (req, res) => {
   }
 });
 
+// Zano RPC proxy endpoint - restricted to internal use with method blocking
+app.post('/zano', async (req, res) => {
+  try {
+    const clientIp = getClientIp(req);
+    if (ZANO_INTERNAL_ONLY && !isPrivateIp(clientIp)) {
+      console.log(`Blocked Zano request from non-internal IP: ${clientIp}`);
+      return res.status(403).json({
+        error: 'Zano RPC is restricted to the internal network'
+      });
+    }
+
+    if (ZANO_REQUIRE_API_KEY) {
+      if (!ZANO_API_KEY) {
+        return res.status(500).json({
+          error: 'Zano API key is not configured'
+        });
+      }
+
+      const apiKey = req.headers['x-api-key'];
+      if (apiKey !== ZANO_API_KEY) {
+        return res.status(401).json({
+          error: 'Invalid or missing API key for Zano RPC'
+        });
+      }
+    }
+
+    const { method } = req.body || {};
+    if (!method) {
+      return res.status(400).json({
+        error: 'Missing method in request body'
+      });
+    }
+
+    if (!ZANO_ALLOWED_METHODS.includes(method)) {
+      console.log(`Blocked Zano method (not allowlisted): ${method}`);
+      return res.status(403).json({
+        error: 'Zano RPC method not permitted',
+        allowed_methods: ZANO_ALLOWED_METHODS
+      });
+    }
+
+    const response = await axios.post(ZANO_RPC_URL, req.body, {
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      timeout: 30000
+    });
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('Zano proxy error:', error.message);
+
+    if (error.response) {
+      res.status(error.response.status).json(error.response.data);
+    } else if (error.code === 'ECONNREFUSED') {
+      res.status(503).json({
+        error: 'Zano RPC node is not accessible'
+      });
+    } else if (error.code === 'ETIMEDOUT') {
+      res.status(504).json({
+        error: 'Request to Zano RPC timed out'
+      });
+    } else {
+      res.status(500).json({
+        error: 'Internal Zano proxy error'
+      });
+    }
+  }
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
@@ -188,6 +321,9 @@ app.listen(PORT, () => {
   console.log(`Nano RPC Proxy listening on port ${PORT}`);
   console.log(`Proxying to: ${NANO_RPC_URL}`);
   console.log(`Total allowed actions without API key: ${ALLOWED_ACTIONS.length}`);
+  console.log(`Zano RPC proxy available at /zano -> ${ZANO_RPC_URL}`);
+  console.log(`Zano allowed methods: ${ZANO_ALLOWED_METHODS.length}`);
+  console.log(`Zano internal only: ${ZANO_INTERNAL_ONLY}`);
   console.log('Use /health endpoint to check status');
 });
 

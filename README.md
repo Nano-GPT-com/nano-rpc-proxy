@@ -14,6 +14,7 @@ A secure, production-ready proxy for Nano RPC nodes with API key authentication 
 - CORS support
 - Request logging
 - Health check endpoint
+- Optional internal-only `/zano` endpoint with method blocklist
 - Graceful error handling
 
 ## Quick Start
@@ -74,6 +75,56 @@ Environment variables:
 - `PORT`: Port for the proxy server (default: 3000)
 - `NANO_RPC_URL`: URL of your Nano RPC node (default: http://127.0.0.1:7076)
 - `API_KEY`: API key for full access (generate with: `openssl rand -hex 32`)
+- `ZANO_RPC_URL`: URL of your Zano daemon JSON-RPC endpoint (default: http://127.0.0.1:11211/json_rpc)
+- `ZANO_API_KEY`: API key for `/zano` (no default; always required)
+- `ZANO_INTERNAL_ONLY`: Restrict `/zano` to loopback/private IPs (default: true)
+- `ZANO_ALLOWED_METHODS`: Comma-separated allowlist for `/zano` (defaults to `make_integrated_address,get_balance,get_payments`)
+
+> Keep secrets out of git: set `API_KEY` and `ZANO_API_KEY` in `.env` (gitignored) or your deployment environment. Compose files only reference these variables and do not embed key values.
+
+## Zano RPC (internal use)
+
+The `/zano` endpoint forwards JSON-RPC calls to your Zano daemon for internal services.
+
+- Defaults to `ZANO_INTERNAL_ONLY=true`, so requests must originate from loopback or private subnets.
+- Always requires an API key (`ZANO_API_KEY`).
+- Uses an allowlist (default `make_integrated_address,get_balance,get_payments`); override with `ZANO_ALLOWED_METHODS`.
+- For deposit flows, point `ZANO_RPC_URL` at the wallet JSON-RPC that supports address generation (e.g., integrated addresses) rather than the daemon-only port; create new deposit addresses from your backend and poll balances via the same `/zano` endpoint with the dedicated key.
+
+Example request:
+
+```bash
+curl -X POST http://localhost:3000/zano \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $ZANO_API_KEY" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"get_info","params":{}}'
+```
+
+Deposit flow examples (adjust `method`/`params` to your wallet RPC):
+
+```bash
+# 1) Create a new deposit address (e.g., integrated address with payment id)
+curl -X POST http://localhost:3000/zano \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $ZANO_API_KEY" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"make_integrated_address","params":{"payment_id":"<optional_payment_id>"}}'
+
+# 2) Poll balance for that address (replace with the wallet RPC your setup uses)
+curl -X POST http://localhost:3000/zano \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $ZANO_API_KEY" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"get_balance","params":{"address":"<deposit_address>"}}'
+```
+
+### Zano test script
+
+Run a quick sanity check against the running proxy/Zano node:
+
+```bash
+ZANO_TEST_API_KEY=$ZANO_API_KEY npm run test:zano
+# Optional overrides:
+# ZANO_TEST_URL=http://your-host:3000/zano npm run test:zano
+```
 
 ## Security Model
 
