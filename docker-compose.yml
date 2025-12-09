@@ -47,14 +47,14 @@ networks:
     image: canardleteer/zano:master-zano-runner
     container_name: zano-wallet-rpc
     restart: unless-stopped
-    entrypoint: ["zano-wallet-rpc"]
+    entrypoint: ["/usr/bin/simplewallet"]
     command:
       [
         "--wallet-file", "${ZANO_WALLET_FILE:-/home/ubuntu/wallet/yourwallet.wallet}",
         "--password", "${ZANO_WALLET_PASSWORD:-change-me}",
+        "--rpc-bind-ip", "127.0.0.1",
         "--rpc-bind-port", "${ZANO_WALLET_RPC_PORT:-11212}",
-        "--daemon-address", "127.0.0.1:11121",
-        "--disable-rpc-login"
+        "--daemon-address", "127.0.0.1:11121"
       ]
     volumes:
       - ./wallet-data:/home/ubuntu/wallet

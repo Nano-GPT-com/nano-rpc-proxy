@@ -78,7 +78,7 @@ Environment variables:
 - `ZANO_RPC_URL`: URL of your Zano daemon JSON-RPC endpoint (default: http://127.0.0.1:11211/json_rpc)
 - `ZANO_API_KEY`: API key for `/zano` (no default; always required)
 - `ZANO_ALLOWED_METHODS`: Comma-separated allowlist for `/zano` (defaults to `make_integrated_address,get_balance,get_payments`)
-- `ZANO_WALLET_FILE`, `ZANO_WALLET_PASSWORD`, `ZANO_WALLET_RPC_PORT`: wallet RPC settings used by the zano-wallet-rpc service (default port 11212); point `ZANO_RPC_URL` to this wallet RPC for address generation/balance
+- `ZANO_WALLET_FILE`, `ZANO_WALLET_PASSWORD`, `ZANO_WALLET_RPC_PORT`: wallet RPC settings (simplewallet in RPC mode, default port 11212); point `ZANO_RPC_URL` to this wallet RPC for address generation/balance
 
 > Keep secrets out of git: set `API_KEY` and `ZANO_API_KEY` in `.env` (gitignored) or your deployment environment. Compose files only reference these variables and do not embed key values.
 
