@@ -78,6 +78,7 @@ Environment variables:
 - `ZANO_RPC_URL`: URL of your Zano daemon JSON-RPC endpoint (default: http://127.0.0.1:11211/json_rpc)
 - `ZANO_API_KEY`: API key for `/zano` (no default; always required)
 - `ZANO_ALLOWED_METHODS`: Comma-separated allowlist for `/zano` (defaults to `make_integrated_address,get_balance,get_payments`)
+- `ZANO_WALLET_FILE`, `ZANO_WALLET_PASSWORD`, `ZANO_WALLET_RPC_PORT`: wallet RPC settings used by the zano-wallet-rpc service (default port 11212); point `ZANO_RPC_URL` to this wallet RPC for address generation/balance
 
 > Keep secrets out of git: set `API_KEY` and `ZANO_API_KEY` in `.env` (gitignored) or your deployment environment. Compose files only reference these variables and do not embed key values.
 
@@ -124,7 +125,7 @@ The server can watch Redis for pending deposit jobs and push a webhook once a tr
 - `WATCHER_WEBHOOK_URL` and `WATCHER_SHARED_SECRET` (header `X-Zano-Secret`)
 - `WATCHER_INTERVAL_MS`, `WATCHER_SCAN_COUNT`, `WATCHER_JOB_TTL_SECONDS`, `WATCHER_SEEN_TTL_SECONDS`, `WATCHER_STATUS_TTL_SECONDS`
 - `WATCHER_MIN_CONFIRMATIONS_ZANO` / `WATCHER_MIN_CONFIRMATIONS_FUSD`
-- `ZANO_RPC_URL` (wallet RPC for deposits)
+- `ZANO_RPC_URL` (wallet RPC for deposits; provided by the `zano-wallet-rpc` service)
 - `ZANO_DECIMALS`, `FUSD_DECIMALS`
 
 **Redis job format**

@@ -9,8 +9,36 @@ services:
       - PORT=3000
       - NANO_RPC_URL=${NANO_RPC_URL:-http://127.0.0.1:7076}
       - API_KEY=${API_KEY}
-      - ZANO_RPC_URL=${ZANO_RPC_URL:-http://127.0.0.1:11211/json_rpc}
+      - ZANO_RPC_URL=${ZANO_RPC_URL:-http://127.0.0.1:11212/json_rpc}
       - ZANO_API_KEY=${ZANO_API_KEY}
+    network_mode: host
+
+  zano:
+    image: canardleteer/zano:master-zano-runner
+    container_name: zano
+    restart: unless-stopped
+    volumes:
+      - ./zano-data:/home/ubuntu/.Zano
+      - ./private:/home/ubuntu/private
+    network_mode: host
+
+  zano-wallet-rpc:
+    image: canardleteer/zano:master-zano-runner
+    container_name: zano-wallet-rpc
+    restart: unless-stopped
+    command:
+      [
+        "zano-wallet-rpc",
+        "--wallet-file", "${ZANO_WALLET_FILE:-/home/ubuntu/wallet/yourwallet.wallet}",
+        "--password", "${ZANO_WALLET_PASSWORD:-change-me}",
+        "--rpc-bind-port", "${ZANO_WALLET_RPC_PORT:-11212}",
+        "--daemon-address", "127.0.0.1:11121",
+        "--disable-rpc-login"
+      ]
+    volumes:
+      - ./wallet-data:/home/ubuntu/wallet
+    depends_on:
+      - zano
     network_mode: host
 
   nginx-ssl:
