@@ -5,9 +5,19 @@
 
 set -e
 
-# Configuration
-DOMAIN="rpc.nano-gpt.com"
-API_KEY="5e3ff8205b57fa3495bde592f07a0a06b395f97997555a8ce104347f651d63eb"
+# Configuration (override via environment)
+DOMAIN="${DOMAIN:-rpc.nano-gpt.com}"
+
+# Load .env if present so we can use API_KEY/ZANO_API_KEY without hardcoding
+if [ -f .env ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source .env
+    set +a
+fi
+
+API_KEY="${API_KEY:-}"
+ZANO_API_KEY="${ZANO_API_KEY:-}"
 
 echo "🚀 Nano RPC Proxy - Universal Deployment"
 echo "========================================"
@@ -181,18 +191,22 @@ fi
 echo ""
 
 # API test with key
-echo "Testing API with key (should bypass rate limiting)..."
-if curl -k -s --max-time 10 -X POST "$ENDPOINT" \
-    -H "Content-Type: application/json" \
-    -H "x-api-key: $API_KEY" \
-    -d '{"action": "version"}' > /dev/null 2>&1; then
-    echo "✅ API with key works"
-    curl -k -s --max-time 5 -X POST "$ENDPOINT" \
+if [ -n "$API_KEY" ]; then
+    echo "Testing API with key (should bypass rate limiting)..."
+    if curl -k -s --max-time 10 -X POST "$ENDPOINT" \
         -H "Content-Type: application/json" \
         -H "x-api-key: $API_KEY" \
-        -d '{"action": "version"}' | head -c 200
+        -d '{"action": "version"}' > /dev/null 2>&1; then
+        echo "✅ API with key works"
+        curl -k -s --max-time 5 -X POST "$ENDPOINT" \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: $API_KEY" \
+            -d '{"action": "version"}' | head -c 200
+    else
+        echo "❌ API with key failed"
+    fi
 else
-    echo "❌ API with key failed"
+    echo "⚠️  API_KEY not set; skipping authenticated Nano test"
 fi
 
 echo ""
@@ -205,6 +219,22 @@ if curl -k -s --max-time 10 -X POST "$ENDPOINT" \
     echo "✅ API without key works"
 else
     echo "❌ API without key failed"
+fi
+
+# Optional: Zano test with key (internal-only by default)
+if [ -n "$ZANO_API_KEY" ]; then
+    echo ""
+    echo "Testing Zano allowlisted call with key..."
+    if curl -k -s --max-time 10 -X POST "$ENDPOINT/zano" \
+        -H "Content-Type: application/json" \
+        -H "X-API-Key: $ZANO_API_KEY" \
+        -d '{"jsonrpc":"2.0","id":1,"method":"make_integrated_address","params":{}}' > /dev/null 2>&1; then
+        echo "✅ Zano /zano responded (integrated address request)"
+    else
+        echo "❌ Zano /zano test failed (ensure endpoint is reachable internally and key is set)"
+    fi
+else
+    echo "⚠️  ZANO_API_KEY not set; skipping Zano test"
 fi
 
 # Step 9: Show logs

@@ -3,6 +3,15 @@ const axios = require('axios');
 const cors = require('cors');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
+const { KvClient } = require('./kv');
+const { loadWatcherConfig, normalizeTicker } = require('./watcher-config');
+const {
+  createDepositJob,
+  readStatus,
+  saveStatus,
+  formatAtomicAmount
+} = require('./deposits');
+const { startDepositWatcher } = require('./watcher');
 
 const app = express();
 
@@ -23,6 +32,26 @@ const ZANO_ALLOWED_METHODS = (process.env.ZANO_ALLOWED_METHODS || '')
   .split(',')
   .map((method) => method.trim())
   .filter(Boolean);
+
+const watcherConfig = loadWatcherConfig({ zanoRpcUrl: ZANO_RPC_URL });
+
+let kvClient = null;
+try {
+  if (watcherConfig.kvUrl && watcherConfig.kvToken) {
+    kvClient = new KvClient({
+      url: watcherConfig.kvUrl,
+      token: watcherConfig.kvToken
+    });
+  } else {
+    console.warn('KV_REST_API_URL or KV_REST_API_TOKEN not set; deposit watcher and transaction routes are disabled.');
+  }
+} catch (error) {
+  console.error('Failed to initialize KV client:', error.message);
+}
+
+const getTickerDecimals = (ticker) => watcherConfig.decimals[normalizeTicker(ticker)] || watcherConfig.decimals.zano || 12;
+const getMinConfirmations = (ticker) => watcherConfig.minConfirmations[normalizeTicker(ticker)] || watcherConfig.minConfirmations.zano || 0;
+const isTickerEnabled = (ticker) => watcherConfig.tickers.includes(normalizeTicker(ticker));
 
 if (!API_KEY) {
   console.warn('API_KEY is not set; only whitelisted Nano actions will be accessible without authentication.');
@@ -68,6 +97,24 @@ const getClientIp = (req) => {
   }
 
   return normalizedDirectIp;
+};
+
+const parsePositiveInt = (value, fallback) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+  return parsed;
+};
+
+const ensureKvClient = (res) => {
+  if (!kvClient) {
+    res.status(503).json({
+      error: 'KV is not configured. Set KV_REST_API_URL and KV_REST_API_TOKEN.'
+    });
+    return false;
+  }
+  return true;
 };
 
 // Allowed actions without API key - only confirmed standard Nano RPC commands
@@ -310,6 +357,180 @@ app.post('/zano', async (req, res) => {
   }
 });
 
+// Transaction status (public) and webhook/capture endpoints (protected)
+app.get('/api/transaction/status/:ticker/:txId', async (req, res) => {
+  try {
+    if (!ensureKvClient(res)) return;
+
+    const ticker = normalizeTicker(req.params.ticker);
+    const { txId } = req.params;
+
+    if (!ticker || !txId) {
+      return res.status(400).json({ error: 'ticker and txId are required' });
+    }
+
+    const status = await readStatus(kvClient, ticker, txId);
+    if (!status) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    res.json(status);
+  } catch (error) {
+    console.error('Status lookup error:', error.message);
+    res.status(500).json({ error: 'Failed to read transaction status' });
+  }
+});
+
+app.post('/api/transaction/create', async (req, res) => {
+  try {
+    if (!ensureKvClient(res)) return;
+
+    const apiKey = (req.headers['x-api-key'] || '').trim();
+    if (!API_KEY || apiKey !== API_KEY) {
+      return res.status(401).json({ error: 'Invalid or missing API key' });
+    }
+
+    const {
+      ticker,
+      address,
+      txId,
+      jobId,
+      expectedAmount,
+      minConf,
+      sessionId,
+      ttlSeconds
+    } = req.body || {};
+
+    const normalizedTicker = normalizeTicker(ticker);
+    if (!normalizedTicker) {
+      return res.status(400).json({ error: 'ticker is required' });
+    }
+
+    if (!isTickerEnabled(normalizedTicker)) {
+      return res.status(400).json({ error: `Ticker ${normalizedTicker} is not enabled for the watcher` });
+    }
+
+    if (!address || !txId) {
+      return res.status(400).json({ error: 'address and txId are required' });
+    }
+
+    const createdAt = new Date().toISOString();
+    const jobTtl = parsePositiveInt(ttlSeconds, watcherConfig.jobTtlSeconds);
+    const minConfirmations = parsePositiveInt(minConf, getMinConfirmations(normalizedTicker));
+
+    const job = await createDepositJob(
+      kvClient,
+      {
+        ticker: normalizedTicker,
+        address,
+        txId,
+        jobId,
+        expectedAmount: expectedAmount ?? '',
+        minConf: minConfirmations,
+        sessionId,
+        createdAt
+      },
+      {
+        ttlSeconds: jobTtl,
+        defaultMinConf: minConfirmations
+      }
+    );
+
+    const status = await saveStatus(
+      kvClient,
+      normalizedTicker,
+      txId,
+      {
+        status: 'PENDING',
+        address,
+        expectedAmount: expectedAmount ?? '',
+        confirmations: 0,
+        jobId: jobId || txId,
+        sessionId: sessionId || '',
+        createdAt
+      },
+      watcherConfig.statusTtlSeconds
+    );
+
+    res.json({
+      ok: true,
+      jobKey: job.key,
+      ttlSeconds: jobTtl,
+      status
+    });
+  } catch (error) {
+    console.error('Create transaction job error:', error);
+    res.status(500).json({ error: 'Failed to create deposit job' });
+  }
+});
+
+app.post('/api/transaction/callback/:ticker', async (req, res) => {
+  try {
+    if (!ensureKvClient(res)) return;
+
+    if (!watcherConfig.webhookSecret) {
+      return res.status(503).json({ error: 'WATCHER_SHARED_SECRET is not configured' });
+    }
+
+    const providedSecret = (req.headers['x-zano-secret'] || '').trim();
+    if (providedSecret !== watcherConfig.webhookSecret) {
+      return res.status(401).json({ error: 'Invalid webhook secret' });
+    }
+
+    const ticker = normalizeTicker(req.params.ticker || req.body?.ticker);
+    const {
+      txId,
+      address,
+      amount,
+      amountAtomic,
+      expectedAmount,
+      confirmations,
+      hash,
+      jobId,
+      sessionId,
+      createdAt
+    } = req.body || {};
+
+    if (!ticker) {
+      return res.status(400).json({ error: 'Ticker is required in path or body' });
+    }
+
+    if (!isTickerEnabled(ticker)) {
+      return res.status(400).json({ error: `Ticker ${ticker} is not enabled for the watcher` });
+    }
+
+    if (!txId || !address || !hash) {
+      return res.status(400).json({ error: 'txId, address, and hash are required' });
+    }
+
+    const decimals = getTickerDecimals(ticker);
+    const paidAmount = amount || formatAtomicAmount(amountAtomic, decimals) || '';
+    const payload = await saveStatus(
+      kvClient,
+      ticker,
+      txId,
+      {
+        status: 'COMPLETED',
+        address,
+        expectedAmount: expectedAmount ?? '',
+        confirmations: parsePositiveInt(confirmations, 0),
+        hash,
+        paidAmount,
+        paidAmountAtomic: amountAtomic ?? '',
+        jobId: jobId || txId,
+        sessionId: sessionId || '',
+        createdAt: createdAt || new Date().toISOString()
+      },
+      watcherConfig.statusTtlSeconds
+    );
+
+    res.json({ ok: true, status: payload });
+  } catch (error) {
+    console.error('Webhook callback error:', error);
+    res.status(500).json({ error: 'Failed to process webhook' });
+  }
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
@@ -325,6 +546,7 @@ app.listen(PORT, () => {
   console.log(`Zano allowed methods: ${ZANO_ALLOWED_METHODS.length}`);
   console.log(`Zano internal only: ${ZANO_INTERNAL_ONLY}`);
   console.log('Use /health endpoint to check status');
+  startDepositWatcher(kvClient, watcherConfig);
 });
 
 // Graceful shutdown

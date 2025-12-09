@@ -116,6 +116,35 @@ curl -X POST http://localhost:3000/zano \
   -d '{"jsonrpc":"2.0","id":3,"method":"get_balance","params":{"address":"<deposit_address>"}}'
 ```
 
+## Zano/FUSD Deposit Watcher & Webhooks
+
+The server can watch Redis for pending deposit jobs and push a webhook once a transaction is confirmed. This is designed for VPS/Upstash setups with a polling frontend.
+
+**Env wiring**
+- `KV_REST_API_URL` / `KV_REST_API_TOKEN` (Upstash/Redis REST)
+- `WATCHER_TICKERS` (e.g., `zano,fusd`)
+- `WATCHER_WEBHOOK_URL` and `WATCHER_SHARED_SECRET` (header `X-Zano-Secret`)
+- `WATCHER_INTERVAL_MS`, `WATCHER_SCAN_COUNT`, `WATCHER_JOB_TTL_SECONDS`, `WATCHER_SEEN_TTL_SECONDS`, `WATCHER_STATUS_TTL_SECONDS`
+- `WATCHER_MIN_CONFIRMATIONS_ZANO` / `WATCHER_MIN_CONFIRMATIONS_FUSD`
+- `ZANO_STATUS_URL` (preferred) or `ZANO_RPC_URL` (+ `ZANO_RPC_USER`/`ZANO_RPC_PASSWORD`)
+- `ZANO_DECIMALS`, `FUSD_DECIMALS`
+
+**Redis job format**
+- Key: `deposit:{ticker}:{jobId}` (TTL set on create)
+- Fields: `address`, `txId` (internal id), `jobId`, optional `expectedAmount`, `minConf`, `sessionId`, `createdAt`
+- Dedup key: `deposit:seen:{hash}` (TTL, prevents double credit)
+
+**Endpoints**
+- `POST /api/transaction/create` (API key required) — enqueues a job and seeds status storage. Body: `ticker`, `address`, `txId`, optional `jobId`, `expectedAmount`, `minConf`, `sessionId`, `ttlSeconds`.
+- `GET /api/transaction/status/:ticker/:txId` — frontend polling endpoint (returns stored status JSON).
+- `POST /api/transaction/callback/:ticker` — webhook handler (requires `X-Zano-Secret`). Body: `{ jobId, txId, address, amount, amountAtomic, expectedAmount?, confirmations, hash, ticker, sessionId?, createdAt? }`.
+
+**Watcher loop**
+- Scans `deposit:{ticker}:*` keys every `WATCHER_INTERVAL_MS` (batch `WATCHER_SCAN_COUNT`).
+- Uses `ZANO_STATUS_URL` when set; falls back to `get_transfers` on `ZANO_RPC_URL`.
+- Sends webhook payload on confirmation >= minConf; on success, marks `deposit:seen:{hash}` (TTL) and deletes the job. Leaves the job for retry on webhook failure.
+- Amount normalization uses the configured decimals (default 12).
+
 ### Zano test script
 
 Run a quick sanity check against the running proxy/Zano node:
