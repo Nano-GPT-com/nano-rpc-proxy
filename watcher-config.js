@@ -37,7 +37,17 @@ const loadWatcherConfig = (overrides = {}) => {
     zanoStatusUrl: overrides.zanoStatusUrl || process.env.ZANO_STATUS_URL || '',
     zanoRpcUrl: overrides.zanoRpcUrl || process.env.ZANO_RPC_URL || '',
     zanoRpcUser: overrides.zanoRpcUser || process.env.ZANO_RPC_USER || '',
-    zanoRpcPassword: overrides.zanoRpcPassword || process.env.ZANO_RPC_PASSWORD || ''
+    zanoRpcPassword: overrides.zanoRpcPassword || process.env.ZANO_RPC_PASSWORD || '',
+    consolidation: {
+      zano: {
+        enabled: process.env.WATCHER_CONSOLIDATE_ZANO === 'true',
+        address: process.env.WATCHER_CONSOLIDATE_ADDRESS_ZANO || ''
+      },
+      fusd: {
+        enabled: process.env.WATCHER_CONSOLIDATE_FUSD === 'true',
+        address: process.env.WATCHER_CONSOLIDATE_ADDRESS_FUSD || ''
+      }
+    }
   };
 
   config.enabled = config.tickers.length > 0;

@@ -115,11 +115,11 @@ curl -X POST http://localhost:3000/zano \
   -d '{"jsonrpc":"2.0","id":3,"method":"get_balance","params":{"address":"<deposit_address>"}}'
 ```
 
-## Zano/FUSD Deposit Watcher & Webhooks (optional)
+## Zano/FUSD Deposit Watcher & Webhooks
 
-The server can watch Redis for pending deposit jobs and push a webhook once a transaction is confirmed. This is designed for VPS/Upstash setups with a polling frontend.
+The server watches Redis for pending deposit jobs and pushes a webhook once a transaction is confirmed. Optional: auto-consolidate confirmed deposits to a treasury address.
 
-**Env wiring (only if you enable the watcher)**
+**Env wiring**
 - `KV_REST_API_URL` / `KV_REST_API_TOKEN` (Upstash/Redis REST)
 - `WATCHER_TICKERS` (e.g., `zano,fusd`)
 - `WATCHER_WEBHOOK_URL` and `WATCHER_SHARED_SECRET` (header `X-Zano-Secret`)
@@ -127,6 +127,7 @@ The server can watch Redis for pending deposit jobs and push a webhook once a tr
 - `WATCHER_MIN_CONFIRMATIONS_ZANO` / `WATCHER_MIN_CONFIRMATIONS_FUSD`
 - `ZANO_RPC_URL` (wallet RPC for deposits; provided by the `zano-wallet-rpc` service)
 - `ZANO_DECIMALS`, `FUSD_DECIMALS`
+- `WATCHER_CONSOLIDATE_ZANO` / `WATCHER_CONSOLIDATE_ADDRESS_ZANO` (optional auto-consolidation; similar for FUSD)
 
 **Redis job format**
 - Key: `deposit:{ticker}:{jobId}` (TTL set on create)
@@ -140,8 +141,10 @@ The server can watch Redis for pending deposit jobs and push a webhook once a tr
 
 **Watcher loop**
 - Scans `deposit:{ticker}:*` keys every `WATCHER_INTERVAL_MS` (batch `WATCHER_SCAN_COUNT`).
-- Uses `ZANO_STATUS_URL` when set; falls back to `get_transfers` on `ZANO_RPC_URL`.
-- Sends webhook payload on confirmation >= minConf; on success, marks `deposit:seen:{hash}` (TTL) and deletes the job. Leaves the job for retry on webhook failure.
+- Uses `ZANO_STATUS_URL` when set; falls back to `get_transfers` on `ZANO_RPC_URL` (must point to wallet RPC).
+- On confirmation >= minConf:
+  - If consolidation is enabled, sends a `transfer` to the configured address using the wallet RPC (not exposed via `/zano`).
+  - Sends webhook payload; on success, marks `deposit:seen:{hash}` (TTL) and deletes the job. Leaves the job for retry on webhook failure.
 - Amount normalization uses the configured decimals (default 12).
 
 ### Zano test script

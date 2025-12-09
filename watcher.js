@@ -148,6 +148,49 @@ const fetchViaRpc = async (address, ticker, config) => {
   return normalizeDeposits(response.data?.result || response.data, address, ticker);
 };
 
+const consolidateDeposit = async (ticker, deposit, config) => {
+  const rules = config.consolidation?.[ticker] || {};
+  if (!rules.enabled || !rules.address) return null;
+
+  const payload = {
+    jsonrpc: '2.0',
+    id: `consolidate-${Date.now()}`,
+    method: 'transfer',
+    params: {
+      destinations: [
+        {
+          address: rules.address,
+          amount: Number(deposit.amountAtomic || deposit.amount || 0)
+        }
+      ],
+      mixin: 3,
+      unlock_time: 0,
+      do_not_relay: false,
+      priority: 0
+    }
+  };
+
+  const response = await axios.post(config.zanoRpcUrl, payload, {
+    auth: config.zanoRpcUser
+      ? {
+          username: config.zanoRpcUser,
+          password: config.zanoRpcPassword || ''
+        }
+      : undefined,
+    timeout: Math.max(config.webhookTimeoutMs, 20000),
+    validateStatus: () => true
+  });
+
+  if (response.status >= 400 || response.data?.error) {
+    throw rpcError(
+      `Consolidation transfer failed ${response.status}: ${response.data?.error?.message || 'unknown'}`,
+      response.data
+    );
+  }
+
+  return response.data?.result || response.data;
+};
+
 const fetchDeposits = async (address, ticker, config) => {
   if (config.zanoStatusUrl) {
     try {
@@ -224,6 +267,17 @@ const handleJob = async (kv, key, ticker, config) => {
     sessionId: job.sessionId || undefined,
     createdAt: job.createdAt || undefined
   };
+
+  let consolidationResult = null;
+  try {
+    consolidationResult = await consolidateDeposit(ticker, confirmed, config);
+    if (consolidationResult?.tx_hash) {
+      payload.consolidationTxId = consolidationResult.tx_hash;
+    }
+  } catch (error) {
+    console.error(`Consolidation failed for ${key}:`, error.message);
+    throw error;
+  }
 
   const ok = await sendWebhook(payload, config);
   if (ok) {
