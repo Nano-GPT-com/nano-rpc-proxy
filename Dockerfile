@@ -8,7 +8,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 # Copy app source
-COPY server.js ./
+COPY . .
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs
