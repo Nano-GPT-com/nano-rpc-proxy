@@ -75,7 +75,7 @@ Environment variables:
 - `PORT`: Port for the proxy server (default: 3000)
 - `NANO_RPC_URL`: URL of your Nano RPC node (default: http://127.0.0.1:7076)
 - `API_KEY`: API key for full access (generate with: `openssl rand -hex 32`)
-- `ZANO_RPC_URL`: URL of your Zano daemon JSON-RPC endpoint (default: http://127.0.0.1:11211/json_rpc)
+- `ZANO_RPC_URL`: URL of your Zano wallet JSON-RPC (point to wallet RPC, default in compose: http://127.0.0.1:11212/json_rpc)
 - `ZANO_API_KEY`: API key for `/zano` (no default; always required)
 - `ZANO_ALLOWED_METHODS`: Comma-separated allowlist for `/zano` (defaults to `make_integrated_address,get_balance,get_payments`)
 - `ZANO_WALLET_FILE`, `ZANO_WALLET_PASSWORD`, `ZANO_WALLET_RPC_PORT`: wallet RPC settings (simplewallet in RPC mode, default port 11212); point `ZANO_RPC_URL` to this wallet RPC for address generation/balance
@@ -115,11 +115,11 @@ curl -X POST http://localhost:3000/zano \
   -d '{"jsonrpc":"2.0","id":3,"method":"get_balance","params":{"address":"<deposit_address>"}}'
 ```
 
-## Zano/FUSD Deposit Watcher & Webhooks
+## Zano/FUSD Deposit Watcher & Webhooks (optional)
 
 The server can watch Redis for pending deposit jobs and push a webhook once a transaction is confirmed. This is designed for VPS/Upstash setups with a polling frontend.
 
-**Env wiring**
+**Env wiring (only if you enable the watcher)**
 - `KV_REST_API_URL` / `KV_REST_API_TOKEN` (Upstash/Redis REST)
 - `WATCHER_TICKERS` (e.g., `zano,fusd`)
 - `WATCHER_WEBHOOK_URL` and `WATCHER_SHARED_SECRET` (header `X-Zano-Secret`)
