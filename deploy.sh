@@ -143,6 +143,14 @@ if [ "$SYSTEM_SSL" = true ] || [ -f "/etc/nginx/nginx.conf" ]; then
     fi
 fi
 
+# Step 3.5: Remove old containers that would conflict with compose names
+for svc in zano zano-wallet-rpc; do
+    if docker ps -a --format '{{.Names}}' | grep -wq "$svc"; then
+        echo "🧹 Removing existing container: $svc"
+        docker rm -f "$svc" >/dev/null 2>&1 || true
+    fi
+done
+
 # Step 4: Build Docker image (no cache to ensure latest server.js/routes)
 echo "🔨 Building Docker image (no cache)..."
 if [ "$DOCKER_SSL" = true ]; then
