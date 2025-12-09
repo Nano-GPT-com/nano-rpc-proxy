@@ -143,9 +143,13 @@ if [ "$SYSTEM_SSL" = true ] || [ -f "/etc/nginx/nginx.conf" ]; then
     fi
 fi
 
-# Step 4: Build Docker image
-echo "🔨 Building Docker image..."
-docker build -t nano-rpc-proxy:latest .
+# Step 4: Build Docker image (no cache to ensure latest server.js/routes)
+echo "🔨 Building Docker image (no cache)..."
+if [ "$DOCKER_SSL" = true ]; then
+    docker-compose -f docker-compose.ssl.yml build --no-cache
+else
+    docker-compose -f docker-compose.production.yml build --no-cache
+fi
 
 # Step 5: Deploy based on setup
 if [ "$DOCKER_SSL" = true ]; then
