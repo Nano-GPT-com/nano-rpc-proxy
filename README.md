@@ -126,7 +126,7 @@ The server can watch Redis for pending deposit jobs and push a webhook once a tr
 - `WATCHER_WEBHOOK_URL` and `WATCHER_SHARED_SECRET` (header `X-Zano-Secret`)
 - `WATCHER_INTERVAL_MS`, `WATCHER_SCAN_COUNT`, `WATCHER_JOB_TTL_SECONDS`, `WATCHER_SEEN_TTL_SECONDS`, `WATCHER_STATUS_TTL_SECONDS`
 - `WATCHER_MIN_CONFIRMATIONS_ZANO` / `WATCHER_MIN_CONFIRMATIONS_FUSD`
-- `ZANO_STATUS_URL` (preferred) or `ZANO_RPC_URL` (+ `ZANO_RPC_USER`/`ZANO_RPC_PASSWORD`)
+- `ZANO_RPC_URL` (wallet RPC for deposits)
 - `ZANO_DECIMALS`, `FUSD_DECIMALS`
 
 **Redis job format**
