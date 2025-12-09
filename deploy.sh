@@ -144,7 +144,7 @@ if [ "$SYSTEM_SSL" = true ] || [ -f "/etc/nginx/nginx.conf" ]; then
 fi
 
 # Step 3.5: Remove old containers that would conflict with compose names
-for svc in zano zano-wallet-rpc; do
+for svc in nano-rpc-proxy-app nano-rpc-nginx nano-rpc-certbot nano-rpc-certbot-renewal zano zano-wallet-rpc; do
     if docker ps -a --format '{{.Names}}' | grep -wq "$svc"; then
         echo "🧹 Removing existing container: $svc"
         docker rm -f "$svc" >/dev/null 2>&1 || true
