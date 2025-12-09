@@ -22,7 +22,6 @@ const API_KEY = (process.env.API_KEY || '').trim();
 const ZANO_RPC_URL = process.env.ZANO_RPC_URL || 'http://127.0.0.1:11211/json_rpc';
 const ZANO_API_KEY = (process.env.ZANO_API_KEY || '').trim();
 const ZANO_REQUIRE_API_KEY = true; // Always enforce API key for Zano
-const ZANO_INTERNAL_ONLY = process.env.ZANO_INTERNAL_ONLY !== 'false';
 const DEFAULT_ALLOWED_ZANO_METHODS = [
   'make_integrated_address',
   'get_balance',
@@ -291,13 +290,6 @@ app.post('/', async (req, res) => {
 app.post('/zano', async (req, res) => {
   try {
     const clientIp = getClientIp(req);
-    if (ZANO_INTERNAL_ONLY && !isPrivateIp(clientIp)) {
-      console.log(`Blocked Zano request from non-internal IP: ${clientIp}`);
-      return res.status(403).json({
-        error: 'Zano RPC is restricted to the internal network'
-      });
-    }
-
     if (ZANO_REQUIRE_API_KEY) {
       if (!ZANO_API_KEY) {
         return res.status(500).json({
@@ -544,7 +536,6 @@ app.listen(PORT, () => {
   console.log(`Total allowed actions without API key: ${ALLOWED_ACTIONS.length}`);
   console.log(`Zano RPC proxy available at /zano -> ${ZANO_RPC_URL}`);
   console.log(`Zano allowed methods: ${ZANO_ALLOWED_METHODS.length}`);
-  console.log(`Zano internal only: ${ZANO_INTERNAL_ONLY}`);
   console.log('Use /health endpoint to check status');
   startDepositWatcher(kvClient, watcherConfig);
 });

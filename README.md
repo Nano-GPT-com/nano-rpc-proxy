@@ -77,7 +77,6 @@ Environment variables:
 - `API_KEY`: API key for full access (generate with: `openssl rand -hex 32`)
 - `ZANO_RPC_URL`: URL of your Zano daemon JSON-RPC endpoint (default: http://127.0.0.1:11211/json_rpc)
 - `ZANO_API_KEY`: API key for `/zano` (no default; always required)
-- `ZANO_INTERNAL_ONLY`: Restrict `/zano` to loopback/private IPs (default: true)
 - `ZANO_ALLOWED_METHODS`: Comma-separated allowlist for `/zano` (defaults to `make_integrated_address,get_balance,get_payments`)
 
 > Keep secrets out of git: set `API_KEY` and `ZANO_API_KEY` in `.env` (gitignored) or your deployment environment. Compose files only reference these variables and do not embed key values.
@@ -86,7 +85,6 @@ Environment variables:
 
 The `/zano` endpoint forwards JSON-RPC calls to your Zano daemon for internal services.
 
-- Defaults to `ZANO_INTERNAL_ONLY=true`, so requests must originate from loopback or private subnets.
 - Always requires an API key (`ZANO_API_KEY`).
 - Uses an allowlist (default `make_integrated_address,get_balance,get_payments`); override with `ZANO_ALLOWED_METHODS`.
 - For deposit flows, point `ZANO_RPC_URL` at the wallet JSON-RPC that supports address generation (e.g., integrated addresses) rather than the daemon-only port; create new deposit addresses from your backend and poll balances via the same `/zano` endpoint with the dedicated key.
