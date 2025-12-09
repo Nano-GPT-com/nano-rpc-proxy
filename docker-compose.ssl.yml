@@ -26,9 +26,9 @@ services:
     image: canardleteer/zano:master-zano-runner
     container_name: zano-wallet-rpc
     restart: unless-stopped
+    entrypoint: ["zano-wallet-rpc"]
     command:
       [
-        "zano-wallet-rpc",
         "--wallet-file", "${ZANO_WALLET_FILE:-/home/ubuntu/wallet/yourwallet.wallet}",
         "--password", "${ZANO_WALLET_PASSWORD:-change-me}",
         "--rpc-bind-port", "${ZANO_WALLET_RPC_PORT:-11212}",
