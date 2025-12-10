@@ -20,8 +20,8 @@ services:
     environment:
       - HOME=/home/ubuntu
     volumes:
-      - ${ZANO_DATA_DIR:-./zano-data}:/home/ubuntu/.Zano
-      - ${ZANO_PRIVATE_DIR:-./private}:/home/ubuntu/private
+      - ${ZANO_DATA_DIR}:/home/ubuntu/.Zano
+      - ${ZANO_PRIVATE_DIR}:/home/ubuntu/private
     network_mode: host
 
   zano-wallet-rpc:
