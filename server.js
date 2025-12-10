@@ -478,6 +478,14 @@ app.post('/api/transaction/create', async (req, res) => {
       }
     );
 
+    console.log('Deposit job created', {
+      key: job.key,
+      ticker: normalizedTicker,
+      txId,
+      paymentId: generatedPaymentId || paymentIdInput || '',
+      keyPrefix: watcherConfig.keyPrefix
+    });
+
     const status = await saveStatus(
       kvClient,
       normalizedTicker,
@@ -494,6 +502,13 @@ app.post('/api/transaction/create', async (req, res) => {
       },
       { ttlSeconds: watcherConfig.statusTtlSeconds, keyPrefix: watcherConfig.keyPrefix }
     );
+
+    console.log('Status record saved', {
+      ticker: normalizedTicker,
+      txId,
+      paymentId: generatedPaymentId || paymentIdInput || '',
+      keyPrefix: watcherConfig.keyPrefix
+    });
 
     res.json({
       ok: true,

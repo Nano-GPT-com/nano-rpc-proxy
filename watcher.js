@@ -4,6 +4,7 @@ const {
   deleteDepositJob,
   markSeen,
   isSeen,
+  readStatus,
   formatAtomicAmount
 } = require('./deposits');
 const { normalizeTicker } = require('./watcher-config');
@@ -271,16 +272,31 @@ const handleJob = async (kv, key, ticker, config) => {
 
   const minConfirmations = asNumber(job.minConf, config.minConfirmations[ticker] || 0);
 
+  // Backfill paymentId if it wasn't stored in the hash (older jobs)
+  let paymentId = job.paymentId;
+  if (!paymentId) {
+    try {
+      const status = await readStatus(kv, ticker, job.txId, config.keyPrefix);
+      paymentId = status?.paymentId || '';
+      if (paymentId) {
+        await kv.hset(key, { paymentId });
+        watcherLogger.info('Backfilled paymentId onto job', { key, ticker });
+      }
+    } catch (err) {
+      watcherLogger.warn('Failed to backfill paymentId', { key, ticker, error: err.message });
+    }
+  }
+
   watcherLogger.debug('Handling job', {
     key,
     ticker,
     txId: job.txId,
     address: job.address,
-    paymentId: job.paymentId,
+    paymentId,
     minConfirmations
   });
 
-  const deposits = await fetchDeposits(job.address, ticker, config, job.paymentId || '');
+  const deposits = await fetchDeposits(job.address, ticker, config, paymentId || '');
   if (!Array.isArray(deposits) || deposits.length === 0) {
     watcherLogger.debug('No deposits yet', { key, ticker });
     return;
