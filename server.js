@@ -480,6 +480,7 @@ app.post('/api/transaction/create', async (req, res) => {
         expectedAmount: expectedAmount ?? '',
         confirmations: 0,
         jobId: jobId || txId,
+        sessionUUID,
         sessionId: sessionUUID,
         paymentId: generatedPaymentId || paymentIdInput || '',
         createdAt
@@ -493,7 +494,8 @@ app.post('/api/transaction/create', async (req, res) => {
       ttlSeconds: jobTtl,
       status,
       address: finalAddress,
-      paymentId: generatedPaymentId || paymentIdInput || null
+      paymentId: generatedPaymentId || paymentIdInput || null,
+      sessionUUID
     });
   } catch (error) {
     console.error('Create transaction job error:', error);
