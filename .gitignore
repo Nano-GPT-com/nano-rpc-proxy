@@ -12,3 +12,4 @@ coverage/
 *.pid
 *.seed
 *.pid.lock
+wallet-data/
