@@ -37,7 +37,7 @@ services:
         "--password", "${ZANO_WALLET_PASSWORD:-change-me}",
         "--rpc-bind-ip", "127.0.0.1",
         "--rpc-bind-port", "${ZANO_WALLET_RPC_PORT:-11212}",
-        "--daemon-address", "127.0.0.1:11121"
+        "--daemon-address", "127.0.0.1:11211"
       ]
     volumes:
       - ${ZANO_WALLET_DIR}:/home/ubuntu/wallet
