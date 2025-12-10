@@ -132,13 +132,13 @@ The server watches Redis for pending deposit jobs and pushes a webhook once a tr
 
 **Redis job format**
 - Key: `deposit:{ticker}:{jobId}` (TTL set on create)
-- Fields: `address`, `txId` (internal id), `jobId`, optional `expectedAmount`, `minConf`, `sessionId`, `createdAt`
+- Fields: `address`, `txId` (internal id), `jobId`, optional `expectedAmount`, `minConf`, `sessionUUID`, `createdAt`
 - Dedup key: `deposit:seen:{hash}` (TTL, prevents double credit)
 
 **Endpoints**
-- `POST /api/transaction/create` (API key required) — enqueues a job and seeds status storage. Body: `ticker`, `address`, `txId`, optional `jobId`, `expectedAmount`, `minConf`, `sessionId`, `ttlSeconds`.
+- `POST /api/transaction/create` (API key required) — enqueues a job and seeds status storage. Body: `ticker`, `address`, `txId`, optional `jobId`, `expectedAmount`, `minConf`, `sessionUUID`, `ttlSeconds`.
 - `GET /api/transaction/status/:ticker/:txId` — frontend polling endpoint (returns stored status JSON).
-- `POST /api/transaction/callback/:ticker` — webhook handler (requires `X-Zano-Secret`). Body: `{ jobId, txId, address, amount, amountAtomic, expectedAmount?, confirmations, hash, ticker, sessionId?, createdAt? }`.
+- `POST /api/transaction/callback/:ticker` — webhook handler (requires `X-Zano-Secret`). Body: `{ jobId, txId, address, amount, amountAtomic, expectedAmount?, confirmations, hash, ticker, sessionUUID?, createdAt? }`.
 
 ### End-to-end deposit flow (Zano)
 
@@ -173,7 +173,7 @@ The server watches Redis for pending deposit jobs and pushes a webhook once a tr
 
 4) **Optional consolidation**: if `WATCHER_CONSOLIDATE_ZANO=true`, confirmed funds are auto-sent to `WATCHER_CONSOLIDATE_ADDRESS_ZANO`.
 
-5) **Webhook**: on confirmation, watcher POSTs to `WATCHER_WEBHOOK_URL` with header `X-Zano-Secret: WATCHER_SHARED_SECRET` and payload `{ jobId, txId, address, amount, amountAtomic, confirmations, hash, ticker, sessionId?, createdAt? }`.
+5) **Webhook**: on confirmation, watcher POSTs to `WATCHER_WEBHOOK_URL` with header `X-Zano-Secret: WATCHER_SHARED_SECRET` and payload `{ jobId, txId, address, amount, amountAtomic, confirmations, hash, ticker, sessionUUID?, createdAt? }`.
 
 6) **Poll status** (public):
    ```bash

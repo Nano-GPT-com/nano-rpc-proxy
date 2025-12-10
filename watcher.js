@@ -270,7 +270,7 @@ const handleJob = async (kv, key, ticker, config) => {
     confirmations: asNumber(confirmed.confirmations, 0),
     hash: confirmed.hash,
     ticker,
-    sessionId: job.sessionId || undefined,
+    sessionUUID: job.sessionUUID || job.sessionId || undefined,
     createdAt: job.createdAt || undefined
   };
 

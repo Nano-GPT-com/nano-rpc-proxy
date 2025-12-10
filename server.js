@@ -459,7 +459,7 @@ app.post('/api/transaction/create', async (req, res) => {
         jobId,
         expectedAmount: expectedAmount ?? '',
         minConf: minConfirmations,
-        sessionId: sessionUUID,
+        sessionUUID,
         paymentId: generatedPaymentId || paymentIdInput || '',
         createdAt
       },
@@ -481,7 +481,6 @@ app.post('/api/transaction/create', async (req, res) => {
         confirmations: 0,
         jobId: jobId || txId,
         sessionUUID,
-        sessionId: sessionUUID,
         paymentId: generatedPaymentId || paymentIdInput || '',
         createdAt
       },
