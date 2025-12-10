@@ -385,6 +385,7 @@ app.post('/api/transaction/create', async (req, res) => {
     const {
       ticker,
       address,
+      payment_id: paymentIdInput,
       txId,
       jobId,
       expectedAmount,
@@ -402,7 +403,46 @@ app.post('/api/transaction/create', async (req, res) => {
       return res.status(400).json({ error: `Ticker ${normalizedTicker} is not enabled for the watcher` });
     }
 
-    if (!address || !txId) {
+    let finalAddress = address && address.trim();
+    let generatedPaymentId = null;
+
+    // Convenience: if no address provided for Zano, auto-generate an integrated address
+    if (!finalAddress && normalizedTicker === 'zano') {
+      try {
+        const payload = {
+          jsonrpc: '2.0',
+          id: `make-int-${Date.now()}`,
+          method: 'make_integrated_address',
+          params: {}
+        };
+        if (paymentIdInput) {
+          payload.params.payment_id = paymentIdInput;
+        }
+        const headers = { 'Content-Type': 'application/json' };
+        if (ZANO_API_KEY) headers['X-API-Key'] = ZANO_API_KEY;
+
+        const rpcResp = await axios.post(ZANO_RPC_URL, payload, {
+          headers,
+          timeout: 10000,
+          validateStatus: () => true
+        });
+
+        if (rpcResp.status >= 400 || rpcResp.data?.error) {
+          return res.status(502).json({
+            error: 'Failed to generate integrated address',
+            details: rpcResp.data?.error?.message || rpcResp.status
+          });
+        }
+
+        finalAddress = rpcResp.data?.result?.integrated_address || '';
+        generatedPaymentId = rpcResp.data?.result?.payment_id || null;
+      } catch (err) {
+        console.error('make_integrated_address failed:', err.message);
+        return res.status(502).json({ error: 'Failed to generate integrated address' });
+      }
+    }
+
+    if (!finalAddress || !txId) {
       return res.status(400).json({ error: 'address and txId are required' });
     }
 
@@ -414,7 +454,7 @@ app.post('/api/transaction/create', async (req, res) => {
       kvClient,
       {
         ticker: normalizedTicker,
-        address,
+        address: finalAddress,
         txId,
         jobId,
         expectedAmount: expectedAmount ?? '',
@@ -435,7 +475,7 @@ app.post('/api/transaction/create', async (req, res) => {
       txId,
       {
         status: 'PENDING',
-        address,
+        address: finalAddress,
         expectedAmount: expectedAmount ?? '',
         confirmations: 0,
         jobId: jobId || txId,
@@ -449,7 +489,9 @@ app.post('/api/transaction/create', async (req, res) => {
       ok: true,
       jobKey: job.key,
       ttlSeconds: jobTtl,
-      status
+      status,
+      address: finalAddress,
+      paymentId: generatedPaymentId || paymentIdInput || null
     });
   } catch (error) {
     console.error('Create transaction job error:', error);

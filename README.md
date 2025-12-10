@@ -142,31 +142,25 @@ The server watches Redis for pending deposit jobs and pushes a webhook once a tr
 
 ### End-to-end deposit flow (Zano)
 
-1) **Backend combines address generation + job creation** (one server-side flow):
-   - Call `/zano` → `make_integrated_address` (with `X-API-Key: ZANO_API_KEY`) to get `integrated_address`.
-   - Immediately POST `/api/transaction/create` (with `x-api-key: API_KEY`) using that address + your `txId`/`jobId`.
-   - Return the integrated address (and txId) to the client. The watcher is now tracking it.
+1) **Backend call (single step)**
+   - POST `/api/transaction/create` with `ticker=zano`, `txId`, optional `payment_id`, `expectedAmount`, `minConf`.
+   - If `address` is omitted, the endpoint will auto-call `make_integrated_address` and return the generated `address` (and `paymentId`) in the response.
+   - Returns `{ ok, jobKey, status, address, paymentId }`; return these to the client.
 
-   Example (two calls chained in your Next.js API route; shown here as two curls):
+   Example:
    ```bash
-   export IA=$(curl -s https://rpc.nano-gpt.com/zano \
-     -H "Content-Type: application/json" \
-     -H "X-API-Key: $ZANO_API_KEY" \
-     -d '{"jsonrpc":"2.0","id":1,"method":"make_integrated_address","params":{"payment_id":"1a2b3c4d5e6f7891"}}' \
-     | jq -r .result.integrated_address)
-
    curl -s -X POST https://rpc.nano-gpt.com/api/transaction/create \
      -H "Content-Type: application/json" \
      -H "x-api-key: $API_KEY" \
-     -d "{
-           \"ticker\":\"zano\",
-           \"address\":\"$IA\",
-           \"txId\":\"test-tx-123\",
-           \"expectedAmount\":\"0.1\",
-           \"minConf\":6
-         }"
+     -d '{
+           "ticker":"zano",
+           "txId":"test-tx-123",
+           "payment_id":"1a2b3c4d5e6f7891",
+           "expectedAmount":"0.1",
+           "minConf":6
+         }'
    ```
-   The second call writes `deposit:zano:<jobId>` into KV and seeds a `PENDING` status.
+   (You can still supply your own `address` to skip auto-generation.)
 
    *CLI shortcut:* you can seed a job directly via Upstash using `scripts/create-test-deposit.sh`:
    ```bash
