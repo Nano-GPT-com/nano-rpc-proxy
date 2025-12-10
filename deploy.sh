@@ -90,8 +90,8 @@ fi
 # Step 2.5: Attempt to auto-start Docker SSL stack if it's missing
 if [ "$DOCKER_SSL" = false ]; then
     echo "⚠️  nginx SSL container not running - attempting automatic start..."
-    if docker-compose -f docker-compose.ssl.yml config >/dev/null 2>&1; then
-        docker-compose -f docker-compose.ssl.yml up -d nginx-ssl >/dev/null 2>&1 || true
+    if docker-compose --env-file .env -f docker-compose.ssl.yml config >/dev/null 2>&1; then
+        docker-compose --env-file .env -f docker-compose.ssl.yml up -d nginx-ssl >/dev/null 2>&1 || true
         sleep 3
         if docker ps | grep -q "nano-rpc-nginx"; then
             echo "✅ nginx SSL container started successfully"
@@ -169,25 +169,25 @@ fi
 # Step 4: Build Docker image (no cache to ensure latest server.js/routes)
 echo "🔨 Building Docker image (no cache)..."
 if [ "$DOCKER_SSL" = true ]; then
-    docker-compose -f docker-compose.ssl.yml build --no-cache
+    docker-compose --env-file .env -f docker-compose.ssl.yml build --no-cache
 else
-    docker-compose -f docker-compose.production.yml build --no-cache
+    docker-compose --env-file .env -f docker-compose.production.yml build --no-cache
 fi
 
 # Step 5: Deploy based on setup
 if [ "$DOCKER_SSL" = true ]; then
     echo "🐳 Deploying with Docker SSL..."
-    docker-compose -f docker-compose.ssl.yml up -d --force-recreate
+    docker-compose --env-file .env -f docker-compose.ssl.yml up -d --force-recreate
     ENDPOINT="https://$DOMAIN"
     
 elif [ "$SYSTEM_SSL" = true ] && [ "$HAS_CERTS" = true ]; then
     echo "🖥️  Deploying with System SSL..."
-    docker-compose -f docker-compose.production.yml up -d
+    docker-compose --env-file .env -f docker-compose.production.yml up -d
     ENDPOINT="https://$DOMAIN"
     
 else
     echo "📡 Deploying HTTP-only..."
-    docker-compose -f docker-compose.production.yml up -d
+    docker-compose --env-file .env -f docker-compose.production.yml up -d
     ENDPOINT="http://localhost:3000"
 fi
 
