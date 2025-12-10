@@ -281,6 +281,12 @@ const handleJob = async (kv, key, ticker, config) => {
       if (paymentId) {
         await kv.hset(key, { paymentId });
         watcherLogger.info('Backfilled paymentId onto job', { key, ticker });
+      } else {
+        watcherLogger.debug('No paymentId found in status for backfill', {
+          key,
+          ticker,
+          keyPrefix: config.keyPrefix
+        });
       }
     } catch (err) {
       watcherLogger.warn('Failed to backfill paymentId', { key, ticker, error: err.message });
@@ -295,6 +301,14 @@ const handleJob = async (kv, key, ticker, config) => {
     paymentId,
     minConfirmations
   });
+
+  if (!paymentId) {
+    watcherLogger.warn('Skipping RPC fetch; paymentId missing after backfill attempt', {
+      key,
+      ticker,
+      txId: job.txId
+    });
+  }
 
   const deposits = await fetchDeposits(job.address, ticker, config, paymentId || '');
   if (!Array.isArray(deposits) || deposits.length === 0) {
