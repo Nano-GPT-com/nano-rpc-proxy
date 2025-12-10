@@ -17,6 +17,8 @@ services:
     image: canardleteer/zano:master-zano-runner
     container_name: zano
     restart: unless-stopped
+    environment:
+      - HOME=/home/ubuntu
     volumes:
       - ./zano-data:/home/ubuntu/.Zano
       - ./private:/home/ubuntu/private
@@ -27,6 +29,8 @@ services:
     container_name: zano-wallet-rpc
     restart: unless-stopped
     entrypoint: ["/usr/bin/simplewallet"]
+    environment:
+      - HOME=/home/ubuntu
     command:
       [
         "--wallet-file", "${ZANO_WALLET_FILE:-/home/ubuntu/wallet/yourwallet.wallet}",
