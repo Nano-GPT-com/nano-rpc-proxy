@@ -10,6 +10,23 @@ const { normalizeTicker } = require('./watcher-config');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const LOG_LEVELS = { error: 0, warn: 1, info: 2, debug: 3 };
+
+const createLogger = (level = 'info') => {
+  const current = LOG_LEVELS[level] ?? LOG_LEVELS.info;
+  const prefix = '[watcher]';
+  const should = (lvl) => (LOG_LEVELS[lvl] ?? LOG_LEVELS.info) <= current;
+
+  return {
+    error: (...args) => should('error') && console.error(prefix, ...args),
+    warn: (...args) => should('warn') && console.warn(prefix, ...args),
+    info: (...args) => should('info') && console.log(prefix, ...args),
+    debug: (...args) => should('debug') && console.debug(prefix, ...args)
+  };
+};
+
+let watcherLogger = createLogger(process.env.WATCHER_LOG_LEVEL || 'info');
+
 const asNumber = (value, fallback = 0) => {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
@@ -206,7 +223,7 @@ const fetchDeposits = async (address, ticker, config, paymentId) => {
       }
     } catch (error) {
       // fall back to RPC if status API is unavailable
-      console.error('Status API error, falling back to RPC:', error.message);
+      watcherLogger.warn('Status API error, falling back to RPC:', error.message);
     }
   }
 
@@ -224,10 +241,11 @@ const sendWebhook = async (payload, config) => {
   });
 
   if (response.status >= 200 && response.status < 300) {
+    watcherLogger.debug('Webhook delivered', { status: response.status, txId: payload.txId });
     return true;
   }
 
-  console.error('Webhook failed', response.status, response.data);
+  watcherLogger.error('Webhook failed', response.status, response.data);
   return false;
 };
 
@@ -242,6 +260,7 @@ const handleJob = async (kv, key, ticker, config) => {
 
   const deposits = await fetchDeposits(job.address, ticker, config, job.paymentId || '');
   if (!Array.isArray(deposits) || deposits.length === 0) {
+    watcherLogger.debug('No deposits yet', { key, ticker });
     return;
   }
 
@@ -250,10 +269,12 @@ const handleJob = async (kv, key, ticker, config) => {
     .sort((a, b) => asNumber(b.confirmations, 0) - asNumber(a.confirmations, 0))[0];
 
   if (!confirmed || !confirmed.hash) {
+    watcherLogger.debug('No confirmed deposit meets threshold', { key, ticker, minConfirmations });
     return;
   }
 
   if (await isSeen(kv, confirmed.hash, config.keyPrefix)) {
+    watcherLogger.info('Deposit already seen, deleting job', { key, hash: confirmed.hash });
     await deleteDepositJob(kv, key);
     return;
   }
@@ -279,16 +300,24 @@ const handleJob = async (kv, key, ticker, config) => {
     consolidationResult = await consolidateDeposit(ticker, confirmed, config);
     if (consolidationResult?.tx_hash) {
       payload.consolidationTxId = consolidationResult.tx_hash;
+      watcherLogger.info('Consolidation completed', {
+        key,
+        ticker,
+        consolidationTxId: consolidationResult.tx_hash
+      });
     }
   } catch (error) {
-    console.error(`Consolidation failed for ${key}:`, error.message);
+    watcherLogger.error(`Consolidation failed for ${key}:`, error.message);
     throw error;
   }
 
   const ok = await sendWebhook(payload, config);
   if (ok) {
+    watcherLogger.info('Webhook sent and job completed', { key, hash: confirmed.hash, ticker });
     await markSeen(kv, confirmed.hash, config.seenTtlSeconds, config.keyPrefix);
     await deleteDepositJob(kv, key);
+  } else {
+    watcherLogger.warn('Webhook not accepted, job retained', { key, hash: confirmed.hash, ticker });
   }
 };
 
@@ -298,6 +327,7 @@ const processTickerJobs = async (kv, ticker, config) => {
 
   do {
     const { cursor: nextCursor, keys } = await kv.scan(pattern, config.scanCount, cursor);
+    watcherLogger.debug('Scanning jobs', { ticker, batchSize: keys.length, cursor });
     for (const key of keys) {
       try {
         await handleJob(kv, key, ticker, config);
@@ -305,7 +335,7 @@ const processTickerJobs = async (kv, ticker, config) => {
         if (error.isRpcError) {
           throw error;
         }
-        console.error(`Failed to handle job ${key}:`, error.message);
+        watcherLogger.error(`Failed to handle job ${key}:`, error.message);
       }
     }
     cursor = nextCursor;
@@ -313,18 +343,20 @@ const processTickerJobs = async (kv, ticker, config) => {
 };
 
 const startDepositWatcher = (kv, config) => {
+  watcherLogger = createLogger(config.logLevel);
+
   if (!config.enabled || !config.tickers || config.tickers.length === 0) {
-    console.log('Deposit watcher disabled (no tickers configured).');
+    watcherLogger.info('Deposit watcher disabled (no tickers configured).');
     return;
   }
 
   if (!kv || !config.kvReady) {
-    console.log('Deposit watcher disabled (KV not configured).');
+    watcherLogger.info('Deposit watcher disabled (KV not configured).');
     return;
   }
 
   if (!config.webhookUrl || !config.webhookSecret) {
-    console.log('Deposit watcher disabled (missing WATCHER_WEBHOOK_URL or WATCHER_SHARED_SECRET).');
+    watcherLogger.info('Deposit watcher disabled (missing WATCHER_WEBHOOK_URL or WATCHER_SHARED_SECRET).');
     return;
   }
 
@@ -339,35 +371,39 @@ const startDepositWatcher = (kv, config) => {
       const ticker = normalizeTicker(tickerRaw);
       const until = backoffUntil.get(ticker) || 0;
       if (until > Date.now()) {
+        watcherLogger.debug('Ticker in backoff window, skipping', { ticker, resumeAt: until });
         continue;
       }
 
       try {
+        watcherLogger.debug('Processing ticker', { ticker });
         await processTickerJobs(kv, ticker, config);
       } catch (error) {
         if (error.isRpcError) {
           backoffUntil.set(ticker, Date.now() + (config.errorBackoffMs || 30000));
-          console.error(`RPC error for ${ticker}, backing off:`, error.message);
+          watcherLogger.warn(`RPC error for ${ticker}, backing off:`, error.message);
         } else {
-          console.error(`Watcher error for ${ticker}:`, error.message);
+          watcherLogger.error(`Watcher error for ${ticker}:`, error.message);
         }
       }
     }
 
     const elapsed = Date.now() - started;
     const delay = Math.max(config.intervalMs - elapsed, 1000);
+    watcherLogger.debug('Watcher loop complete', { elapsedMs: elapsed, nextDelayMs: delay });
     setTimeout(loop, delay);
   };
 
-  console.log(
+  watcherLogger.info(
     `Deposit watcher started for tickers [${config.tickers.join(
       ', '
-    )}] - interval ${config.intervalMs}ms, scan count ${config.scanCount}`
+    )}] - interval ${config.intervalMs}ms, scan count ${config.scanCount}, log level ${config.logLevel}`
   );
 
   loop();
   return () => {
     state.running = false;
+    watcherLogger.info('Deposit watcher stopped');
   };
 };
 

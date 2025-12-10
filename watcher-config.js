@@ -7,6 +7,12 @@ const parseNumber = (value, fallback) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const parseLogLevel = (value, fallback = 'info') => {
+  const normalized = (value || fallback).toLowerCase();
+  const allowed = ['error', 'warn', 'info', 'debug'];
+  return allowed.includes(normalized) ? normalized : fallback;
+};
+
 const loadWatcherConfig = (overrides = {}) => {
   const tickers = (process.env.WATCHER_TICKERS || '')
     .split(',')
@@ -28,6 +34,7 @@ const loadWatcherConfig = (overrides = {}) => {
       zano: parseNumber(process.env.WATCHER_MIN_CONFIRMATIONS_ZANO, 6),
       fusd: parseNumber(process.env.WATCHER_MIN_CONFIRMATIONS_FUSD, 2)
     },
+    logLevel: parseLogLevel(process.env.WATCHER_LOG_LEVEL, 'info'),
     decimals: {
       zano: parseNumber(process.env.ZANO_DECIMALS, 12),
       fusd: parseNumber(process.env.FUSD_DECIMALS, 12)
