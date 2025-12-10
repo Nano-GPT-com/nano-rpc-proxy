@@ -36,19 +36,28 @@ missing=0
 
 scan_once() {
   local pattern="$1" cursor="$2"
-  local url="${KV_URL}/scan/${cursor}?match=$(urlenc "$pattern")&count=${SCAN_COUNT}"
-  curl -fsSL -H "Authorization: Bearer ${TOKEN}" "$url"
+  local url="${KV_URL}/SCAN/${cursor}?match=$(urlenc "$pattern")&count=${SCAN_COUNT}"
+  if [ "${DEBUG:-0}" -ne 0 ]; then
+    echo "SCAN url: $url" >&2
+    curl -sSL -D /tmp/scan_headers.$$ -H "Authorization: Bearer ${TOKEN}" "$url" || {
+      echo "SCAN failed; status headers:" >&2
+      cat /tmp/scan_headers.$$ >&2
+      return 1
+    }
+  else
+    curl -fsSL -H "Authorization: Bearer ${TOKEN}" "$url"
+  fi
 }
 
 hgetall() {
   local key="$1"
-  local url="${KV_URL}/hgetall/$(urlenc "$key")"
+  local url="${KV_URL}/HGETALL/$(urlenc "$key")"
   curl -fsSL -H "Authorization: Bearer ${TOKEN}" "$url"
 }
 
 hset_payment() {
   local key="$1" pid="$2"
-  local url="${KV_URL}/hset/$(urlenc "$key")"
+  local url="${KV_URL}/HSET/$(urlenc "$key")"
   curl -fsSL -H "Authorization: Bearer ${TOKEN}" \
     -H "Content-Type: application/json" \
     -d "$(printf '[\"paymentId\",\"%s\"]' "$pid")" \
@@ -57,7 +66,7 @@ hset_payment() {
 
 get_status() {
   local key="$1"
-  local url="${KV_URL}/get/$(urlenc "$key")"
+  local url="${KV_URL}/GET/$(urlenc "$key")"
   curl -fsSL -H "Authorization: Bearer ${TOKEN}" "$url"
 }
 
