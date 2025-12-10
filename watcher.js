@@ -186,6 +186,8 @@ const consolidateDeposit = async (ticker, deposit, config) => {
     return null;
   }
 
+  const fee = Number.isFinite(rules.feeAtomic) ? rules.feeAtomic : 10000000000;
+
   const payload = {
     jsonrpc: '2.0',
     id: `consolidate-${Date.now()}`,
@@ -197,6 +199,7 @@ const consolidateDeposit = async (ticker, deposit, config) => {
           amount: Number(deposit.amountAtomic || deposit.amount || 0)
         }
       ],
+      fee,
       mixin: 3,
       unlock_time: 0,
       do_not_relay: false,
@@ -221,6 +224,12 @@ const consolidateDeposit = async (ticker, deposit, config) => {
       response.data
     );
   }
+
+  watcherLogger.debug('Consolidation transfer submitted', {
+    ticker,
+    amountAtomic: deposit.amountAtomic,
+    fee
+  });
 
   return response.data?.result || response.data;
 };
