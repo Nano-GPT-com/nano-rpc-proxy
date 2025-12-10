@@ -390,7 +390,6 @@ app.post('/api/transaction/create', async (req, res) => {
       jobId,
       expectedAmount,
       // minConf is intentionally ignored; min confirmations are server-configured
-      sessionId,
       sessionUUID,
       ttlSeconds
     } = req.body || {};
@@ -443,8 +442,8 @@ app.post('/api/transaction/create', async (req, res) => {
       }
     }
 
-    if (!finalAddress || !txId) {
-      return res.status(400).json({ error: 'address and txId are required' });
+    if (!finalAddress || !txId || !sessionUUID) {
+      return res.status(400).json({ error: 'address, txId, and sessionUUID are required' });
     }
 
     const createdAt = new Date().toISOString();
@@ -480,7 +479,7 @@ app.post('/api/transaction/create', async (req, res) => {
         expectedAmount: expectedAmount ?? '',
         confirmations: 0,
         jobId: jobId || txId,
-        sessionId: sessionUUID || sessionId || '',
+        sessionId: sessionUUID,
         createdAt
       },
       { ttlSeconds: watcherConfig.statusTtlSeconds, keyPrefix: watcherConfig.keyPrefix }
