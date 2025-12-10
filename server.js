@@ -363,9 +363,17 @@ app.get('/api/transaction/status/:ticker/:txId', async (req, res) => {
 
     const status = await readStatus(kvClient, ticker, txId, watcherConfig.keyPrefix);
     if (!status) {
+      console.log('Status lookup miss', { ticker, txId, keyPrefix: watcherConfig.keyPrefix });
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
+    console.log('Status lookup hit', {
+      ticker,
+      txId,
+      keyPrefix: watcherConfig.keyPrefix,
+      status: status.status,
+      updatedAt: status.updatedAt
+    });
     res.json(status);
   } catch (error) {
     console.error('Status lookup error:', error.message);
@@ -493,8 +501,7 @@ app.post('/api/transaction/create', async (req, res) => {
       ttlSeconds: jobTtl,
       status,
       address: finalAddress,
-      paymentId: generatedPaymentId || paymentIdInput || null,
-      sessionUUID
+      paymentId: generatedPaymentId || paymentIdInput || null
     });
   } catch (error) {
     console.error('Create transaction job error:', error);

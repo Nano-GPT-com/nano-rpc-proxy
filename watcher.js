@@ -132,7 +132,10 @@ const fetchViaStatusApi = async (address, ticker, config) => {
 
 const fetchViaRpc = async (address, ticker, config, paymentId) => {
   if (!config.zanoRpcUrl) return [];
-  if (!paymentId) return [];
+  if (!paymentId) {
+    watcherLogger.debug('RPC fetch skipped (no paymentId)', { ticker, address });
+    return [];
+  }
 
   const payload = {
     jsonrpc: '2.0',
@@ -173,7 +176,14 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
 
 const consolidateDeposit = async (ticker, deposit, config) => {
   const rules = config.consolidation?.[ticker] || {};
-  if (!rules.enabled || !rules.address) return null;
+  if (!rules.enabled || !rules.address) {
+    watcherLogger.debug('Consolidation skipped (disabled or address missing)', {
+      ticker,
+      enabled: rules.enabled,
+      hasAddress: Boolean(rules.address)
+    });
+    return null;
+  }
 
   const payload = {
     jsonrpc: '2.0',
@@ -219,6 +229,7 @@ const fetchDeposits = async (address, ticker, config, paymentId) => {
     try {
       const deposits = await fetchViaStatusApi(address, ticker, config);
       if (deposits.length > 0) {
+        watcherLogger.debug('Status API deposits', { ticker, count: deposits.length });
         return deposits;
       }
     } catch (error) {
@@ -227,7 +238,9 @@ const fetchDeposits = async (address, ticker, config, paymentId) => {
     }
   }
 
-  return fetchViaRpc(address, ticker, config, paymentId);
+  const rpcDeposits = await fetchViaRpc(address, ticker, config, paymentId);
+  watcherLogger.debug('RPC deposits', { ticker, count: rpcDeposits.length, hasPaymentId: Boolean(paymentId) });
+  return rpcDeposits;
 };
 
 const sendWebhook = async (payload, config) => {
@@ -258,6 +271,15 @@ const handleJob = async (kv, key, ticker, config) => {
 
   const minConfirmations = asNumber(job.minConf, config.minConfirmations[ticker] || 0);
 
+  watcherLogger.debug('Handling job', {
+    key,
+    ticker,
+    txId: job.txId,
+    address: job.address,
+    paymentId: job.paymentId,
+    minConfirmations
+  });
+
   const deposits = await fetchDeposits(job.address, ticker, config, job.paymentId || '');
   if (!Array.isArray(deposits) || deposits.length === 0) {
     watcherLogger.debug('No deposits yet', { key, ticker });
@@ -273,8 +295,20 @@ const handleJob = async (kv, key, ticker, config) => {
     return;
   }
 
+  watcherLogger.info('Confirmed deposit found', {
+    key,
+    ticker,
+    hash: confirmed.hash,
+    confirmations: confirmed.confirmations,
+    amountAtomic: confirmed.amountAtomic
+  });
+
   if (await isSeen(kv, confirmed.hash, config.keyPrefix)) {
-    watcherLogger.info('Deposit already seen, deleting job', { key, hash: confirmed.hash });
+    watcherLogger.info('Deposit already seen, deleting job', {
+      key,
+      hash: confirmed.hash,
+      ticker
+    });
     await deleteDepositJob(kv, key);
     return;
   }
