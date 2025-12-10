@@ -391,6 +391,7 @@ app.post('/api/transaction/create', async (req, res) => {
       expectedAmount,
       // minConf is intentionally ignored; min confirmations are server-configured
       sessionId,
+      sessionUUID,
       ttlSeconds
     } = req.body || {};
 
@@ -459,7 +460,7 @@ app.post('/api/transaction/create', async (req, res) => {
         jobId,
         expectedAmount: expectedAmount ?? '',
         minConf: minConfirmations,
-        sessionId,
+        sessionId: sessionUUID || sessionId,
         createdAt
       },
       {
@@ -479,7 +480,7 @@ app.post('/api/transaction/create', async (req, res) => {
         expectedAmount: expectedAmount ?? '',
         confirmations: 0,
         jobId: jobId || txId,
-        sessionId: sessionId || '',
+        sessionId: sessionUUID || sessionId || '',
         createdAt
       },
       { ttlSeconds: watcherConfig.statusTtlSeconds, keyPrefix: watcherConfig.keyPrefix }
