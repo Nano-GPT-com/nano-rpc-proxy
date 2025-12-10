@@ -1,123 +1,48 @@
-const axios = require('axios');
-
-const DEFAULT_TIMEOUT_MS = 10000;
-
-const unwrap = (payload) => (payload && typeof payload === 'object' && 'result' in payload ? payload.result : payload);
-
-const normalizeResultArray = (payload) => {
-  const result = unwrap(payload);
-
-  if (Array.isArray(result)) {
-    return result;
-  }
-
-  return [];
-};
+const { Redis } = require('@upstash/redis');
 
 class KvClient {
-  constructor({ url, token, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+  constructor({ url, token }) {
     if (!url || !token) {
       throw new Error('KV_REST_API_URL and KV_REST_API_TOKEN are required for the watcher.');
     }
-
-    this.url = url.replace(/\/+$/, '');
-    this.token = token;
-    this.timeoutMs = timeoutMs;
-  }
-
-  async request(path, { method = 'GET', data, params } = {}) {
-    const headers = {
-      Authorization: `Bearer ${this.token}`
-    };
-
-    if (data !== undefined) {
-      headers['Content-Type'] = 'application/json';
-    }
-
-    const response = await axios({
-      method,
-      url: `${this.url}/${path}`,
-      headers,
-      data,
-      params,
-      timeout: this.timeoutMs,
-      validateStatus: () => true
-    });
-
-    if (response.status >= 400) {
-      const err = new Error(`KV request failed: ${response.status} ${response.statusText}`);
-      err.response = response;
-      throw err;
-    }
-
-    return response.data;
+    this.redis = new Redis({ url, token });
   }
 
   async scan(pattern, count = 100, cursor = '0') {
-    const data = await this.request(`scan/${cursor}`, {
-      params: {
-        match: pattern,
-        count
-      }
-    });
-
-    const [nextCursor = '0', keys = []] = normalizeResultArray(data);
-    return { cursor: String(nextCursor), keys };
+    const [nextCursor, keys] = await this.redis.scan(cursor, { match: pattern, count });
+    return { cursor: String(nextCursor), keys: keys || [] };
   }
 
   async hgetall(key) {
-    const data = await this.request(`hgetall/${encodeURIComponent(key)}`);
-    const raw = normalizeResultArray(data);
-
-    if (!Array.isArray(raw) || raw.length === 0) {
-      return {};
-    }
-
-    const obj = {};
-    for (let i = 0; i < raw.length; i += 2) {
-      const field = raw[i];
-      const value = raw[i + 1];
-      obj[field] = value;
-    }
-    return obj;
+    const data = await this.redis.hgetall(key);
+    return data || {};
   }
 
   async hset(key, obj = {}) {
-    const segments = [`hset/${encodeURIComponent(key)}`];
-    for (const [field, value] of Object.entries(obj)) {
-      segments.push(encodeURIComponent(field));
-      segments.push(encodeURIComponent(value ?? ''));
-    }
-    const path = segments.join('/');
-    return this.request(path, { method: 'POST' });
+    if (!obj || Object.keys(obj).length === 0) return;
+    return this.redis.hset(key, obj);
   }
 
   async expire(key, seconds) {
-    return this.request(`expire/${encodeURIComponent(key)}/${seconds}`, { method: 'POST' });
+    return this.redis.expire(key, seconds);
   }
 
   async ttl(key) {
-    const data = unwrap(await this.request(`ttl/${encodeURIComponent(key)}`));
-    return typeof data === 'number' ? data : Number(data || -2);
+    const t = await this.redis.ttl(key);
+    return typeof t === 'number' ? t : Number(t || -2);
   }
 
   async del(key) {
-    return this.request(`del/${encodeURIComponent(key)}`, { method: 'POST' });
+    return this.redis.del(key);
   }
 
   async set(key, value, { ttlSeconds } = {}) {
-    const params = {};
-    if (ttlSeconds && Number.isFinite(ttlSeconds)) {
-      params.EX = ttlSeconds;
-    }
-
+    const expiresIn = ttlSeconds && Number.isFinite(ttlSeconds) ? ttlSeconds : undefined;
     const stringValue = typeof value === 'string' ? value : JSON.stringify(value);
-    const path = `set/${encodeURIComponent(key)}/${encodeURIComponent(stringValue)}`;
-
-    return this.request(path, {
-      method: 'POST',
-      params
-    });
+    if (expiresIn) {
+      return this.redis.set(key, stringValue, { ex: expiresIn });
+    }
+    return this.redis.set(key, stringValue);
   }
 
   async setJson(key, value, options = {}) {
@@ -127,22 +52,20 @@ class KvClient {
   async getJson(key) {
     const raw = await this.get(key);
     if (!raw) return null;
-
     try {
       return JSON.parse(raw);
-    } catch (error) {
+    } catch (_) {
       return null;
     }
   }
 
   async get(key) {
-    const data = unwrap(await this.request(`get/${encodeURIComponent(key)}`));
-    return data ?? null;
+    return this.redis.get(key);
   }
 
   async exists(key) {
-    const data = unwrap(await this.request(`exists/${encodeURIComponent(key)}`));
-    return Number(data) === 1;
+    const exists = await this.redis.exists(key);
+    return Number(exists) === 1;
   }
 }
 
