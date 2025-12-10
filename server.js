@@ -389,7 +389,7 @@ app.post('/api/transaction/create', async (req, res) => {
       txId,
       jobId,
       expectedAmount,
-      minConf,
+      // minConf is intentionally ignored; min confirmations are server-configured
       sessionId,
       ttlSeconds
     } = req.body || {};
@@ -448,7 +448,7 @@ app.post('/api/transaction/create', async (req, res) => {
 
     const createdAt = new Date().toISOString();
     const jobTtl = parsePositiveInt(ttlSeconds, watcherConfig.jobTtlSeconds);
-    const minConfirmations = parsePositiveInt(minConf, getMinConfirmations(normalizedTicker));
+    const minConfirmations = getMinConfirmations(normalizedTicker);
 
     const job = await createDepositJob(
       kvClient,

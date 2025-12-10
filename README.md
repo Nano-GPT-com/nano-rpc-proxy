@@ -156,8 +156,7 @@ The server watches Redis for pending deposit jobs and pushes a webhook once a tr
            "ticker":"zano",
            "txId":"test-tx-123",
            "payment_id":"1a2b3c4d5e6f7891",
-           "expectedAmount":"0.1",
-           "minConf":6
+           "expectedAmount":"0.1"
          }'
    ```
    (You can still supply your own `address` to skip auto-generation.)
