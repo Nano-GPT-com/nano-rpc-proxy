@@ -459,7 +459,8 @@ app.post('/api/transaction/create', async (req, res) => {
         jobId,
         expectedAmount: expectedAmount ?? '',
         minConf: minConfirmations,
-        sessionId: sessionUUID || sessionId,
+        sessionId: sessionUUID,
+        paymentId: generatedPaymentId || paymentIdInput || '',
         createdAt
       },
       {
@@ -480,6 +481,7 @@ app.post('/api/transaction/create', async (req, res) => {
         confirmations: 0,
         jobId: jobId || txId,
         sessionId: sessionUUID,
+        paymentId: generatedPaymentId || paymentIdInput || '',
         createdAt
       },
       { ttlSeconds: watcherConfig.statusTtlSeconds, keyPrefix: watcherConfig.keyPrefix }

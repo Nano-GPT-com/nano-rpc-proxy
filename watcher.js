@@ -113,17 +113,16 @@ const fetchViaStatusApi = async (address, ticker, config) => {
   return normalizeDeposits(response.data, address, ticker);
 };
 
-const fetchViaRpc = async (address, ticker, config) => {
+const fetchViaRpc = async (address, ticker, config, paymentId) => {
   if (!config.zanoRpcUrl) return [];
+  if (!paymentId) return [];
 
   const payload = {
     jsonrpc: '2.0',
     id: `watcher-${Date.now()}`,
-    method: 'get_transfers',
+    method: 'get_payments',
     params: {
-      filter_by_addresses: [address],
-      in: true,
-      out: false
+      payment_id: paymentId
     }
   };
 
@@ -145,7 +144,14 @@ const fetchViaRpc = async (address, ticker, config) => {
     );
   }
 
-  return normalizeDeposits(response.data?.result || response.data, address, ticker);
+  const payments = response.data?.result?.payments || [];
+  return payments.map((p) => ({
+    hash: p.tx_hash,
+    amountAtomic: p.amount,
+    confirmations: 100, // treat get_payments as sufficiently confirmed
+    address,
+    ticker
+  }));
 };
 
 const consolidateDeposit = async (ticker, deposit, config) => {
@@ -191,7 +197,7 @@ const consolidateDeposit = async (ticker, deposit, config) => {
   return response.data?.result || response.data;
 };
 
-const fetchDeposits = async (address, ticker, config) => {
+const fetchDeposits = async (address, ticker, config, paymentId) => {
   if (config.zanoStatusUrl) {
     try {
       const deposits = await fetchViaStatusApi(address, ticker, config);
@@ -204,7 +210,7 @@ const fetchDeposits = async (address, ticker, config) => {
     }
   }
 
-  return fetchViaRpc(address, ticker, config);
+  return fetchViaRpc(address, ticker, config, paymentId);
 };
 
 const sendWebhook = async (payload, config) => {
@@ -234,7 +240,7 @@ const handleJob = async (kv, key, ticker, config) => {
 
   const minConfirmations = asNumber(job.minConf, config.minConfirmations[ticker] || 0);
 
-  const deposits = await fetchDeposits(job.address, ticker, config);
+  const deposits = await fetchDeposits(job.address, ticker, config, job.paymentId || '');
   if (!Array.isArray(deposits) || deposits.length === 0) {
     return;
   }
