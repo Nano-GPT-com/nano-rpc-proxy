@@ -151,7 +151,7 @@ The server watches Redis for pending deposit jobs and pushes a webhook once a tr
    ```bash
    curl -s -X POST https://rpc.nano-gpt.com/api/transaction/create \
      -H "Content-Type: application/json" \
-     -H "x-api-key: $API_KEY" \  # or use $ZANO_API_KEY (both accepted)
+     -H "x-api-key: $ZANO_API_KEY" \
      -d '{
            "ticker":"zano",
            "txId":"test-tx-123",

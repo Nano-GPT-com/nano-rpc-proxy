@@ -378,9 +378,8 @@ app.post('/api/transaction/create', async (req, res) => {
     if (!ensureKvClient(res)) return;
 
     const apiKey = (req.headers['x-api-key'] || '').trim();
-    const validKeys = [API_KEY, ZANO_API_KEY].filter(Boolean);
-    if (validKeys.length === 0 || !validKeys.includes(apiKey)) {
-      return res.status(401).json({ error: 'Invalid or missing API key' });
+    if (!ZANO_API_KEY || apiKey !== ZANO_API_KEY) {
+      return res.status(401).json({ error: 'Invalid or missing Zano API key' });
     }
 
     const {
