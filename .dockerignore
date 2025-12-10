@@ -8,3 +8,8 @@ README.md
 *.log
 .vscode
 .idea
+# Avoid sending chain/wallet data and local secrets into the build context
+zano-data
+wallet-data
+private
+zano-node

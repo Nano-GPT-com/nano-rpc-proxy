@@ -27,8 +27,8 @@ services:
     environment:
       - HOME=/home/ubuntu
     volumes:
-      - ./zano-data:/home/ubuntu/.Zano
-      - ./private:/home/ubuntu/private
+      - ${ZANO_DATA_DIR:-./zano-data}:/home/ubuntu/.Zano
+      - ${ZANO_PRIVATE_DIR:-./private}:/home/ubuntu/private
     network_mode: host
     logging:
       driver: "json-file"
@@ -52,7 +52,7 @@ services:
         "--daemon-address", "127.0.0.1:11121"
       ]
     volumes:
-      - ./wallet-data:/home/ubuntu/wallet
+      - ${ZANO_WALLET_DIR:-./wallet-data}:/home/ubuntu/wallet
     depends_on:
       - zano
     network_mode: host
