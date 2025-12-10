@@ -52,7 +52,7 @@ services:
         "--daemon-address", "127.0.0.1:11121"
       ]
     volumes:
-      - ${ZANO_WALLET_DIR:-./wallet-data}:/home/ubuntu/wallet
+      - ${ZANO_WALLET_DIR}:/home/ubuntu/wallet
     depends_on:
       - zano
     network_mode: host
