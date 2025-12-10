@@ -361,7 +361,7 @@ app.get('/api/transaction/status/:ticker/:txId', async (req, res) => {
       return res.status(400).json({ error: 'ticker and txId are required' });
     }
 
-    const status = await readStatus(kvClient, ticker, txId);
+    const status = await readStatus(kvClient, ticker, txId, watcherConfig.keyPrefix);
     if (!status) {
       return res.status(404).json({ error: 'Transaction not found' });
     }
@@ -424,7 +424,8 @@ app.post('/api/transaction/create', async (req, res) => {
       },
       {
         ttlSeconds: jobTtl,
-        defaultMinConf: minConfirmations
+        defaultMinConf: minConfirmations,
+        keyPrefix: watcherConfig.keyPrefix
       }
     );
 
@@ -441,7 +442,7 @@ app.post('/api/transaction/create', async (req, res) => {
         sessionId: sessionId || '',
         createdAt
       },
-      watcherConfig.statusTtlSeconds
+      { ttlSeconds: watcherConfig.statusTtlSeconds, keyPrefix: watcherConfig.keyPrefix }
     );
 
     res.json({
@@ -513,7 +514,7 @@ app.post('/api/transaction/callback/:ticker', async (req, res) => {
         sessionId: sessionId || '',
         createdAt: createdAt || new Date().toISOString()
       },
-      watcherConfig.statusTtlSeconds
+      { ttlSeconds: watcherConfig.statusTtlSeconds, keyPrefix: watcherConfig.keyPrefix }
     );
 
     res.json({ ok: true, status: payload });

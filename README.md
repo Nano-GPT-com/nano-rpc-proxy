@@ -128,6 +128,7 @@ The server watches Redis for pending deposit jobs and pushes a webhook once a tr
 - `ZANO_RPC_URL` (wallet RPC for deposits; provided by the `zano-wallet-rpc` service)
 - `ZANO_DECIMALS`, `FUSD_DECIMALS`
 - `WATCHER_CONSOLIDATE_ZANO` / `WATCHER_CONSOLIDATE_ADDRESS_ZANO` (optional auto-consolidation; similar for FUSD)
+- `WATCHER_KEY_PREFIX` (namespace keys in Redis/Upstash, default `zano` to avoid clashing with other systems)
 
 **Redis job format**
 - Key: `deposit:{ticker}:{jobId}` (TTL set on create)

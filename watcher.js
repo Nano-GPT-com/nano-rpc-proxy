@@ -247,7 +247,7 @@ const handleJob = async (kv, key, ticker, config) => {
     return;
   }
 
-  if (await isSeen(kv, confirmed.hash)) {
+  if (await isSeen(kv, confirmed.hash, config.keyPrefix)) {
     await deleteDepositJob(kv, key);
     return;
   }
@@ -281,14 +281,14 @@ const handleJob = async (kv, key, ticker, config) => {
 
   const ok = await sendWebhook(payload, config);
   if (ok) {
-    await markSeen(kv, confirmed.hash, config.seenTtlSeconds);
+    await markSeen(kv, confirmed.hash, config.seenTtlSeconds, config.keyPrefix);
     await deleteDepositJob(kv, key);
   }
 };
 
 const processTickerJobs = async (kv, ticker, config) => {
   let cursor = '0';
-  const pattern = `deposit:${ticker}:*`;
+  const pattern = `${config.keyPrefix}:deposit:${ticker}:*`;
 
   do {
     const { cursor: nextCursor, keys } = await kv.scan(pattern, config.scanCount, cursor);

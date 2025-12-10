@@ -1,8 +1,12 @@
 const { normalizeTicker } = require('./watcher-config');
 
-const buildJobKey = (ticker, jobId) => `deposit:${normalizeTicker(ticker)}:${jobId}`;
-const buildSeenKey = (hash) => `deposit:seen:${hash}`;
-const buildStatusKey = (ticker, txId) => `transaction:status:${normalizeTicker(ticker)}:${txId}`;
+const DEFAULT_PREFIX = process.env.WATCHER_KEY_PREFIX || 'zano';
+
+const buildJobKey = (ticker, jobId, prefix = DEFAULT_PREFIX) =>
+  `${prefix}:deposit:${normalizeTicker(ticker)}:${jobId}`;
+const buildSeenKey = (hash, prefix = DEFAULT_PREFIX) => `${prefix}:seen:${hash}`;
+const buildStatusKey = (ticker, txId, prefix = DEFAULT_PREFIX) =>
+  `${prefix}:transaction:status:${normalizeTicker(ticker)}:${txId}`;
 
 const toBigInt = (value) => {
   if (value === undefined || value === null) return null;
@@ -39,15 +43,16 @@ const ensureTimestamp = (value) => {
   return value;
 };
 
-const createDepositJob = async (kv, data, { ttlSeconds, defaultMinConf }) => {
+const createDepositJob = async (kv, data, { ttlSeconds, defaultMinConf, keyPrefix } = {}) => {
   const ticker = normalizeTicker(data.ticker);
   const jobId = data.jobId || data.txId;
+  const prefix = keyPrefix || DEFAULT_PREFIX;
 
   if (!ticker || !jobId || !data.address || !data.txId) {
     throw new Error('ticker, address, txId, and jobId are required to create a deposit job');
   }
 
-  const key = buildJobKey(ticker, jobId);
+  const key = buildJobKey(ticker, jobId, prefix);
   const payload = {
     ticker,
     address: data.address,
@@ -72,12 +77,13 @@ const getDepositJob = async (kv, key) => kv.hgetall(key);
 
 const deleteDepositJob = async (kv, key) => kv.del(key);
 
-const markSeen = async (kv, hash, ttlSeconds) => kv.set(buildSeenKey(hash), '1', { ttlSeconds });
+const markSeen = async (kv, hash, ttlSeconds, prefix = DEFAULT_PREFIX) =>
+  kv.set(buildSeenKey(hash, prefix), '1', { ttlSeconds });
 
-const isSeen = async (kv, hash) => kv.exists(buildSeenKey(hash));
+const isSeen = async (kv, hash, prefix = DEFAULT_PREFIX) => kv.exists(buildSeenKey(hash, prefix));
 
-const saveStatus = async (kv, ticker, txId, status, ttlSeconds) => {
-  const key = buildStatusKey(ticker, txId);
+const saveStatus = async (kv, ticker, txId, status, { ttlSeconds, keyPrefix } = {}) => {
+  const key = buildStatusKey(ticker, txId, keyPrefix || DEFAULT_PREFIX);
   const payload = {
     ...status,
     ticker: normalizeTicker(ticker),
@@ -89,7 +95,8 @@ const saveStatus = async (kv, ticker, txId, status, ttlSeconds) => {
   return payload;
 };
 
-const readStatus = async (kv, ticker, txId) => kv.getJson(buildStatusKey(ticker, txId));
+const readStatus = async (kv, ticker, txId, keyPrefix) =>
+  kv.getJson(buildStatusKey(ticker, txId, keyPrefix || DEFAULT_PREFIX));
 
 module.exports = {
   buildJobKey,

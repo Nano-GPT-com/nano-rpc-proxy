@@ -51,6 +51,7 @@ const loadWatcherConfig = (overrides = {}) => {
   };
 
   config.enabled = config.tickers.length > 0;
+  config.keyPrefix = process.env.WATCHER_KEY_PREFIX || 'zano';
   config.kvReady = Boolean(config.kvUrl && config.kvToken);
   return config;
 };
