@@ -5,8 +5,6 @@ services:
     build: .
     container_name: nano-rpc-proxy-app
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
       - PORT=3000
       - NANO_RPC_URL=${NANO_RPC_URL:-http://127.0.0.1:7076}
