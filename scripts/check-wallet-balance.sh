@@ -5,6 +5,10 @@ set -e
 ZANO_RPC_URL="${ZANO_RPC_URL:-http://127.0.0.1:11212/json_rpc}"
 AUTH_HEADER=""
 
+# Usage examples:
+#   ZANO_RPC_URL=http://127.0.0.1:11212/json_rpc ./scripts/check-wallet-balance.sh
+#   ZANO_RPC_USER=user ZANO_RPC_PASSWORD=pass ./scripts/check-wallet-balance.sh
+
 if [ -n "$ZANO_RPC_USER" ]; then
   AUTH_HEADER="-u ${ZANO_RPC_USER}:${ZANO_RPC_PASSWORD}"
 fi

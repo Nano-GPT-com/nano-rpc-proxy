@@ -7,6 +7,12 @@ if [ -z "$KV_REST_API_URL" ] || [ -z "$KV_REST_API_TOKEN" ]; then
   exit 1
 fi
 
+# Usage example:
+#   KV_REST_API_URL=... KV_REST_API_TOKEN=... \
+#   ADDRESS=<deposit_address> TXID=<unique_id> \
+#   WATCHER_KEY_PREFIX=zano TICKER=zano \
+#   ./scripts/create-test-deposit.sh
+
 TICKER=${TICKER:-zano}
 ADDRESS=${ADDRESS:-}
 TXID=${TXID:-}
