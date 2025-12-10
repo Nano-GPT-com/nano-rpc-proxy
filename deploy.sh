@@ -151,6 +151,21 @@ for svc in nano-rpc-proxy-app nano-rpc-nginx nano-rpc-certbot nano-rpc-certbot-r
     fi
 done
 
+# Step 3.6: Ensure Zano data directories exist (needed for canardleteer/zano image that expects /home/ubuntu/.Zano)
+ZANO_DATA_DIR="${ZANO_DATA_DIR:-./zano-data}"
+ZANO_PRIVATE_DIR="${ZANO_PRIVATE_DIR:-./private}"
+ZANO_WALLET_DIR="${ZANO_WALLET_DIR:-./wallet-data}"
+
+echo "📂 Ensuring Zano data directories exist..."
+for dir in "$ZANO_DATA_DIR" "$ZANO_PRIVATE_DIR" "$ZANO_WALLET_DIR"; do
+    mkdir -p "$dir"
+done
+
+# Align ownership with container user (ubuntu:ubuntu → 1000:1000); best-effort
+if [ "$(id -u)" -eq 0 ]; then
+    chown -R 1000:1000 "$ZANO_DATA_DIR" "$ZANO_PRIVATE_DIR" "$ZANO_WALLET_DIR" 2>/dev/null || true
+fi
+
 # Step 4: Build Docker image (no cache to ensure latest server.js/routes)
 echo "🔨 Building Docker image (no cache)..."
 if [ "$DOCKER_SSL" = true ]; then
