@@ -140,6 +140,54 @@ The server watches Redis for pending deposit jobs and pushes a webhook once a tr
 - `GET /api/transaction/status/:ticker/:txId` — frontend polling endpoint (returns stored status JSON).
 - `POST /api/transaction/callback/:ticker` — webhook handler (requires `X-Zano-Secret`). Body: `{ jobId, txId, address, amount, amountAtomic, expectedAmount?, confirmations, hash, ticker, sessionId?, createdAt? }`.
 
+### End-to-end deposit flow (Zano)
+
+1) **Backend combines address generation + job creation** (one server-side flow):
+   - Call `/zano` → `make_integrated_address` (with `X-API-Key: ZANO_API_KEY`) to get `integrated_address`.
+   - Immediately POST `/api/transaction/create` (with `x-api-key: API_KEY`) using that address + your `txId`/`jobId`.
+   - Return the integrated address (and txId) to the client. The watcher is now tracking it.
+
+   Example (two calls chained in your Next.js API route; shown here as two curls):
+   ```bash
+   export IA=$(curl -s https://rpc.nano-gpt.com/zano \
+     -H "Content-Type: application/json" \
+     -H "X-API-Key: $ZANO_API_KEY" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"make_integrated_address","params":{"payment_id":"1a2b3c4d5e6f7891"}}' \
+     | jq -r .result.integrated_address)
+
+   curl -s -X POST https://rpc.nano-gpt.com/api/transaction/create \
+     -H "Content-Type: application/json" \
+     -H "x-api-key: $API_KEY" \
+     -d "{
+           \"ticker\":\"zano\",
+           \"address\":\"$IA\",
+           \"txId\":\"test-tx-123\",
+           \"expectedAmount\":\"0.1\",
+           \"minConf\":6
+         }"
+   ```
+   The second call writes `deposit:zano:<jobId>` into KV and seeds a `PENDING` status.
+
+   *CLI shortcut:* you can seed a job directly via Upstash using `scripts/create-test-deposit.sh`:
+   ```bash
+   KV_REST_API_URL=... KV_REST_API_TOKEN=... \
+   ADDRESS=<integrated_address> TXID=<unique_id> \
+   WATCHER_KEY_PREFIX=zano TICKER=zano \
+   ./scripts/create-test-deposit.sh
+   ```
+
+3) **Watcher loop** (runs inside proxy) scans `deposit:zano:*`, fetches transfers for each address via wallet RPC (`get_transfers`), applies `minConf`, and de-dupes via `seen` keys.
+
+4) **Optional consolidation**: if `WATCHER_CONSOLIDATE_ZANO=true`, confirmed funds are auto-sent to `WATCHER_CONSOLIDATE_ADDRESS_ZANO`.
+
+5) **Webhook**: on confirmation, watcher POSTs to `WATCHER_WEBHOOK_URL` with header `X-Zano-Secret: WATCHER_SHARED_SECRET` and payload `{ jobId, txId, address, amount, amountAtomic, confirmations, hash, ticker, sessionId?, createdAt? }`.
+
+6) **Poll status** (public):
+   ```bash
+   curl -s https://rpc.nano-gpt.com/api/transaction/status/zano/<txId>
+   ```
+   Returns `PENDING` → `COMPLETED` with paid amount/hash once webhook succeeded.
+
 **Watcher loop**
 - Scans `deposit:{ticker}:*` keys every `WATCHER_INTERVAL_MS` (batch `WATCHER_SCAN_COUNT`).
 - Uses `ZANO_STATUS_URL` when set; falls back to `get_transfers` on `ZANO_RPC_URL` (must point to wallet RPC).
