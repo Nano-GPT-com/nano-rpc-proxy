@@ -83,15 +83,13 @@ class KvClient {
   }
 
   async hset(key, obj = {}) {
-    const payload = [];
+    const segments = [`hset/${encodeURIComponent(key)}`];
     for (const [field, value] of Object.entries(obj)) {
-      payload.push(field, value);
+      segments.push(encodeURIComponent(field));
+      segments.push(encodeURIComponent(value ?? ''));
     }
-
-    return this.request(`hset/${encodeURIComponent(key)}`, {
-      method: 'POST',
-      data: JSON.stringify(payload)
-    });
+    const path = segments.join('/');
+    return this.request(path, { method: 'POST' });
   }
 
   async expire(key, seconds) {
