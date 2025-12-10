@@ -525,7 +525,7 @@ app.post('/api/transaction/callback/:ticker', async (req, res) => {
       confirmations,
       hash,
       jobId,
-      sessionId,
+      sessionUUID,
       createdAt
     } = req.body || {};
 
@@ -556,7 +556,7 @@ app.post('/api/transaction/callback/:ticker', async (req, res) => {
         paidAmount,
         paidAmountAtomic: amountAtomic ?? '',
         jobId: jobId || txId,
-        sessionId: sessionId || '',
+        sessionUUID: sessionUUID || '',
         createdAt: createdAt || new Date().toISOString()
       },
       { ttlSeconds: watcherConfig.statusTtlSeconds, keyPrefix: watcherConfig.keyPrefix }
