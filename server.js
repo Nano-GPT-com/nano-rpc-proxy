@@ -361,6 +361,15 @@ app.get('/api/transaction/status/:ticker/:paymentId', async (req, res) => {
       return res.status(400).json({ error: 'ticker and paymentId are required' });
     }
 
+    // Debug logging to trace prefix/env mismatches
+    console.log('Status lookup request', {
+      ticker,
+      paymentId,
+      keyPrefix: watcherConfig.keyPrefix,
+      kvUrl: process.env.KV_REST_API_URL,
+      kvTokenSet: Boolean(process.env.KV_REST_API_TOKEN)
+    });
+
     const status = await readStatus(kvClient, ticker, paymentId, watcherConfig.keyPrefix);
     if (!status) {
       console.log('Status lookup miss', { ticker, paymentId, keyPrefix: watcherConfig.keyPrefix });
