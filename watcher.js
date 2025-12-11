@@ -499,6 +499,7 @@ const handleJob = async (kv, key, ticker, config) => {
 
   let consolidationResult = null;
   let consolidationError = null;
+  let updatedAfterConsolidation = false;
 
   if (consolidationAttempted) {
     watcherLogger.debug('Skipping consolidation (already attempted)', { key, ticker });
@@ -530,6 +531,7 @@ const handleJob = async (kv, key, ticker, config) => {
         consolidationAttempted: true,
         consolidationTxId: consolidationResult?.tx_hash || ''
       });
+      updatedAfterConsolidation = true;
     } catch (error) {
       consolidationError = error.message || 'unknown error';
       watcherLogger.error(`Consolidation failed for ${key}:`, consolidationError);
@@ -596,6 +598,36 @@ const handleJob = async (kv, key, ticker, config) => {
   if (canDelete && webhookOk) {
     await markSeen(kv, confirmed.hash, config.seenTtlSeconds, config.keyPrefix);
     await deleteDepositJob(kv, key);
+  } else if (webhookSent && updatedAfterConsolidation) {
+    // Update status to reflect net amounts after consolidation even if job is retained
+    try {
+      await saveStatus(
+        kv,
+        ticker,
+        job.txId,
+        {
+          status: 'COMPLETED',
+          address: job.address,
+          confirmations: asNumber(confirmed.confirmations, 0),
+          hash: confirmed.hash,
+          paymentId: job.paymentId || job.txId,
+          clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
+          paidAmount: formatAtomicAmount(confirmed.amountAtomic ?? confirmed.amount ?? '', decimals) || '',
+          paidAmountAtomic: String(confirmed.amountAtomic ?? confirmed.amount ?? ''),
+          effectiveAmount: payload.effectiveAmount || payload.amount,
+          effectiveAmountAtomic: payload.effectiveAmountAtomic || payload.amountAtomic,
+          feeAtomic: payload.feeAtomic || undefined
+        },
+        { ttlSeconds: config.statusTtlSeconds, keyPrefix: config.keyPrefix }
+      );
+      watcherLogger.info('Status updated post-consolidation (job retained)', {
+        key,
+        ticker,
+        paymentId: payload.paymentId
+      });
+    } catch (err) {
+      watcherLogger.warn('Failed to update status after consolidation', { key, ticker, error: err.message });
+    }
   }
 };
 
