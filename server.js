@@ -482,8 +482,12 @@ app.post('/api/transaction/create', async (req, res) => {
     const finalTxId = finalPaymentId; // use paymentId as canonical id
     const clientReference = clientReferenceInput || '';
 
-    if (!finalAddress || !clientReference) {
-      return res.status(400).json({ error: 'address and client_reference are required' });
+    if (!clientReference) {
+      return res.status(400).json({ error: 'client_reference is required' });
+    }
+
+    if (!finalAddress) {
+      return res.status(400).json({ error: 'address is required (or allow auto-generation for zano)' });
     }
 
     if (!finalPaymentId) {
