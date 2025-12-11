@@ -137,15 +137,19 @@ The server watches Redis for pending deposit jobs and pushes a webhook once a tr
 
 **Endpoints**
 - `POST /api/transaction/create` (API key required)  
-  Body: `ticker`, `address` (optional; generated for zano), `payment_id` (optional; generated if omitted), `expectedAmount`, `client_reference` (required), `ttlSeconds` (optional).  
+  Body: `ticker`, `address` (optional; generated for zano), `payment_id` (optional; generated if omitted), `client_reference` (required), `ttlSeconds` (optional).  
   Returns: `paymentId`, `address`, initial `status`, `jobKey`.
 - `GET /api/transaction/status/:ticker/:paymentId` — public polling.
-- `POST /api/transaction/callback/:ticker` — webhook handler (requires `X-Zano-Secret`). Watcher sends: `paymentId`, `address`, `amount`, `amountAtomic`, `expectedAmount`, `confirmations`, `hash`, `ticker`, `clientReference`, `createdAt`, plus `consolidationTxId` or `consolidationError`.
+- `POST /api/transaction/callback/:ticker` — webhook handler (requires `X-Zano-Secret`). Watcher sends:  
+  - `paymentId`, `address`, `confirmations`, `hash`, `ticker`, `clientReference`, `createdAt`  
+  - Amount fields: `paidAmount` / `paidAmountAtomic` (gross deposit), `effectiveAmount` / `effectiveAmountAtomic` (net after consolidation fee), `feeAtomic` when consolidation ran.  
+  - Consolidation internals (tx id / errors) are not included in the webhook or status.
 
-**Status values**
+**Status values & fields**
 - `PENDING`: job created, no deposit seen yet.
-- `CONFIRMING`: deposit seen but confirmations < minConf (includes current `confirmations` and `hash`).
-- `COMPLETED`: confirmations reached; webhook sent (job removed).
+- `CONFIRMING`: deposit seen but confirmations < minConf (shows current `confirmations` and `hash`).
+- `COMPLETED`: confirmations reached; webhook sent.  
+  Status includes `paidAmount`, `paidAmountAtomic`, `effectiveAmount`, `effectiveAmountAtomic`, `feeAtomic`, plus `paymentId`, `hash`, `confirmations`, `clientReference`, `address`. (No consolidation tx/error, no expectedAmount.)
 
 **Flow**
 1) Call `/api/transaction/create`; store `paymentId`, `address`, `client_reference`.
