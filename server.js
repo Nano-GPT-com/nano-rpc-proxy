@@ -361,42 +361,49 @@ app.get('/api/transaction/status/:ticker/:paymentId', async (req, res) => {
       return res.status(400).json({ error: 'ticker and paymentId are required' });
     }
 
-    // Debug logging to trace prefix/env mismatches
-    console.log('Status lookup request', {
-      ticker,
-      paymentId,
-      keyPrefix: watcherConfig.keyPrefix,
-      kvUrl: process.env.KV_REST_API_URL,
-      kvTokenSet: Boolean(process.env.KV_REST_API_TOKEN)
-    });
+    if (watcherConfig.logLevel === 'debug') {
+      console.log('Status lookup request', {
+        ticker,
+        paymentId,
+        keyPrefix: watcherConfig.keyPrefix,
+        kvUrl: process.env.KV_REST_API_URL,
+        kvTokenSet: Boolean(process.env.KV_REST_API_TOKEN)
+      });
+    }
 
     const statusKey = `${watcherConfig.keyPrefix}:transaction:status:${ticker}:${paymentId}`;
     let rawStatus = null;
     try {
       rawStatus = await kvClient.get(statusKey);
     } catch (e) {
-      console.error('Status raw get error', { key: statusKey, error: e.message });
+      if (watcherConfig.logLevel !== 'error') {
+        console.error('Status raw get error', { key: statusKey, error: e.message });
+      }
     }
 
     const status = await readStatus(kvClient, ticker, paymentId, watcherConfig.keyPrefix);
     if (!status) {
-      console.log('Status lookup miss', {
-        ticker,
-        paymentId,
-        keyPrefix: watcherConfig.keyPrefix,
-        statusKey,
-        rawStatus
-      });
+      if (watcherConfig.logLevel !== 'error') {
+        console.log('Status lookup miss', {
+          ticker,
+          paymentId,
+          keyPrefix: watcherConfig.keyPrefix,
+          statusKey,
+          rawStatus
+        });
+      }
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
-    console.log('Status lookup hit', {
-      ticker,
-      paymentId,
-      keyPrefix: watcherConfig.keyPrefix,
-      status: status.status,
-      updatedAt: status.updatedAt
-    });
+    if (watcherConfig.logLevel !== 'error') {
+      console.log('Status lookup hit', {
+        ticker,
+        paymentId,
+        keyPrefix: watcherConfig.keyPrefix,
+        status: status.status,
+        updatedAt: status.updatedAt
+      });
+    }
     res.json(status);
   } catch (error) {
     console.error('Status lookup error:', error.message);
