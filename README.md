@@ -117,7 +117,7 @@ curl -X POST http://localhost:3000/zano \
 
 ## Zano/FUSD Deposit Watcher & Webhooks
 
-The server watches Redis for pending deposit jobs and pushes a webhook once a transaction is confirmed. Optional: auto-consolidate confirmed deposits to a treasury address.
+The server watches Redis for pending deposit jobs and pushes a webhook once a transaction is confirmed. Optional: auto-consolidate confirmed deposits to a treasury address. All identifiers are `paymentId`-only.
 
 **Env wiring**
 - `KV_REST_API_URL` / `KV_REST_API_TOKEN` (Upstash/Redis REST)
@@ -125,69 +125,60 @@ The server watches Redis for pending deposit jobs and pushes a webhook once a tr
 - `WATCHER_WEBHOOK_URL` and `WATCHER_SHARED_SECRET` (header `X-Zano-Secret`)
 - `WATCHER_INTERVAL_MS`, `WATCHER_SCAN_COUNT`, `WATCHER_JOB_TTL_SECONDS`, `WATCHER_SEEN_TTL_SECONDS`, `WATCHER_STATUS_TTL_SECONDS`
 - `WATCHER_MIN_CONFIRMATIONS_ZANO` / `WATCHER_MIN_CONFIRMATIONS_FUSD`
-- `ZANO_RPC_URL` (wallet RPC for deposits; provided by the `zano-wallet-rpc` service)
+- `ZANO_RPC_URL` (wallet RPC for deposits)
 - `ZANO_DECIMALS`, `FUSD_DECIMALS`
-- `WATCHER_CONSOLIDATE_ZANO` / `WATCHER_CONSOLIDATE_ADDRESS_ZANO` (optional auto-consolidation; similar for FUSD)
-- `WATCHER_KEY_PREFIX` (namespace keys in Redis/Upstash, default `zano` to avoid clashing with other systems)
+- Consolidation: `WATCHER_CONSOLIDATE_{ticker}=true`, `WATCHER_CONSOLIDATE_ADDRESS_{ticker}`, `WATCHER_CONSOLIDATE_FEE_{ticker}` (default fee 10_000_000_000 atomic)
+- `WATCHER_KEY_PREFIX` (default `zano`)
 
-**Redis job format**
-- Key: `deposit:{ticker}:{jobId}` (TTL set on create)
-- Fields: `address`, `txId` (internal id), `jobId`, optional `expectedAmount`, `minConf`, `sessionUUID`, `createdAt`
-- Dedup key: `deposit:seen:{hash}` (TTL, prevents double credit)
+**Keys in Redis**
+- Jobs: `${PREFIX}:deposit:${ticker}:${paymentId}` → `address`, `paymentId`, `expectedAmount`, `minConf`, `clientReference`, `createdAt`, consolidation flags.
+- Status: `${PREFIX}:transaction:status:${ticker}:${paymentId}` → status JSON.
+- Seen: `${PREFIX}:seen:${txHash}` → dedupe once webhook succeeds.
 
 **Endpoints**
-- `POST /api/transaction/create` (API key required) — enqueues a job and seeds status storage. Body: `ticker`, `address`, `txId`, optional `jobId`, `expectedAmount`, `minConf`, `sessionUUID`, `ttlSeconds`.
-- `GET /api/transaction/status/:ticker/:txId` — frontend polling endpoint (returns stored status JSON).
-- `POST /api/transaction/callback/:ticker` — webhook handler (requires `X-Zano-Secret`). Body: `{ jobId, txId, address, amount, amountAtomic, expectedAmount?, confirmations, hash, ticker, sessionUUID?, createdAt? }`.
+- `POST /api/transaction/create` (API key required)  
+  Body: `ticker`, `address` (optional; generated for zano), `payment_id` (optional; generated if omitted), `expectedAmount`, `client_reference` (required), `ttlSeconds` (optional).  
+  Returns: `paymentId`, `address`, initial `status`, `jobKey`.
+- `GET /api/transaction/status/:ticker/:paymentId` — public polling.
+- `POST /api/transaction/callback/:ticker` — webhook handler (requires `X-Zano-Secret`). Watcher sends: `paymentId`, `address`, `amount`, `amountAtomic`, `expectedAmount`, `confirmations`, `hash`, `ticker`, `clientReference`, `createdAt`, plus `consolidationTxId` or `consolidationError`.
 
-### End-to-end deposit flow (Zano)
+**Status values**
+- `PENDING`: job created, no deposit seen yet.
+- `CONFIRMING`: deposit seen but confirmations < minConf (includes current `confirmations` and `hash`).
+- `COMPLETED`: confirmations reached; webhook sent (job removed).
 
-1) **Backend call (single step)**
-   - POST `/api/transaction/create` with `ticker=zano`, `txId`, optional `payment_id`, `expectedAmount`, `minConf`.
-   - If `address` is omitted, the endpoint will auto-call `make_integrated_address` and return the generated `address` (and `paymentId`) in the response.
-   - Returns `{ ok, jobKey, status, address, paymentId }`; return these to the client.
+**Flow**
+1) Call `/api/transaction/create`; store `paymentId`, `address`, `client_reference`.
+2) User pays that address (integrated address embeds `paymentId` for zano).
+3) Watcher scans jobs:
+   - If a deposit is seen below minConf → status `CONFIRMING`.
+   - Once ≥ minConf → optional consolidation (one attempt per job) → webhook → mark seen → delete job.
+   - If webhook fails, job is retained; consolidation is not retried.
+4) Status endpoint always reflects latest stored state.
 
-   Example:
-   ```bash
-   curl -s -X POST https://rpc.nano-gpt.com/api/transaction/create \
-     -H "Content-Type: application/json" \
-     -H "x-api-key: $ZANO_API_KEY" \
-     -d '{
-           "ticker":"zano",
-           "txId":"test-tx-123",
-           "payment_id":"1a2b3c4d5e6f7891",
-           "expectedAmount":"0.1"
-         }'
-   ```
-   (You can still supply your own `address` to skip auto-generation.)
-
-   *CLI shortcut:* you can seed a job directly via Upstash using `scripts/create-test-deposit.sh`:
-   ```bash
-   KV_REST_API_URL=... KV_REST_API_TOKEN=... \
-   ADDRESS=<integrated_address> TXID=<unique_id> \
-   WATCHER_KEY_PREFIX=zano TICKER=zano \
-   ./scripts/create-test-deposit.sh
-   ```
-
-3) **Watcher loop** (runs inside proxy) scans `deposit:zano:*`, fetches transfers for each address via wallet RPC (`get_transfers`), applies `minConf`, and de-dupes via `seen` keys.
-
-4) **Optional consolidation**: if `WATCHER_CONSOLIDATE_ZANO=true`, confirmed funds are auto-sent to `WATCHER_CONSOLIDATE_ADDRESS_ZANO`.
-
-5) **Webhook**: on confirmation, watcher POSTs to `WATCHER_WEBHOOK_URL` with header `X-Zano-Secret: WATCHER_SHARED_SECRET` and payload `{ jobId, txId, address, amount, amountAtomic, confirmations, hash, ticker, sessionUUID?, createdAt? }`.
-
-6) **Poll status** (public):
-   ```bash
-   curl -s https://rpc.nano-gpt.com/api/transaction/status/zano/<txId>
-   ```
-   Returns `PENDING` → `COMPLETED` with paid amount/hash once webhook succeeded.
+**Examples**
+- Create:
+  ```bash
+  curl -s -X POST https://<host>/api/transaction/create \
+    -H "Content-Type: application/json" \
+    -H "x-api-key: $ZANO_API_KEY" \
+    -d '{
+      "ticker":"zano",
+      "expectedAmount":"0.1",
+      "client_reference":"user-123",
+      "payment_id":"optional-hex"
+    }'
+  ```
+- Status:
+  ```bash
+  curl -s https://<host>/api/transaction/status/zano/<paymentId>
+  ```
 
 **Watcher loop**
-- Scans `deposit:{ticker}:*` keys every `WATCHER_INTERVAL_MS` (batch `WATCHER_SCAN_COUNT`).
-- Uses `ZANO_STATUS_URL` when set; falls back to `get_transfers` on `ZANO_RPC_URL` (must point to wallet RPC).
-- On confirmation >= minConf:
-  - If consolidation is enabled, sends a `transfer` to the configured address using the wallet RPC (not exposed via `/zano`).
-  - Sends webhook payload; on success, marks `deposit:seen:{hash}` (TTL) and deletes the job. Leaves the job for retry on webhook failure.
-- Amount normalization uses the configured decimals (default 12).
+- Scans `deposit:{ticker}:*` every `WATCHER_INTERVAL_MS` (`scanCount` batch).
+- Uses `ZANO_STATUS_URL` when set; otherwise wallet RPC `get_transfers`.
+- On confirm ≥ minConf: optional consolidation, webhook, mark seen, delete job; else status `CONFIRMING`.
+- Amounts formatted with configured decimals (default 12).
 
 ### Zano test script
 
