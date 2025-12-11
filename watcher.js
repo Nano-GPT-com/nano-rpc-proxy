@@ -355,7 +355,7 @@ const handleJob = async (kv, key, ticker, config) => {
   const decimals = config.decimals[ticker] || 12;
   const amountAtomic = confirmed.amountAtomic ?? confirmed.amount ?? '';
   const payload = {
-    txId: job.txId,
+    paymentId: job.txId,
     address: job.address,
     amount: formatAtomicAmount(amountAtomic, decimals) || '',
     amountAtomic: String(amountAtomic),
@@ -405,11 +405,21 @@ const handleJob = async (kv, key, ticker, config) => {
 
   const ok = await sendWebhook(payload, config);
   if (ok) {
-    watcherLogger.info('Webhook sent and job completed', { key, hash: confirmed.hash, ticker });
+    watcherLogger.info('Webhook sent and job completed', {
+      key,
+      hash: confirmed.hash,
+      ticker,
+      paymentId: payload.paymentId
+    });
     await markSeen(kv, confirmed.hash, config.seenTtlSeconds, config.keyPrefix);
     await deleteDepositJob(kv, key);
   } else {
-    watcherLogger.warn('Webhook not accepted, job retained', { key, hash: confirmed.hash, ticker });
+    watcherLogger.warn('Webhook not accepted, job retained', {
+      key,
+      hash: confirmed.hash,
+      ticker,
+      paymentId: payload.paymentId
+    });
   }
 };
 

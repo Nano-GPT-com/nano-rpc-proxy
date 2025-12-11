@@ -87,7 +87,6 @@ const saveStatus = async (kv, ticker, txId, status, { ttlSeconds, keyPrefix } = 
   const payload = {
     ...status,
     ticker: normalizeTicker(ticker),
-    txId,
     updatedAt: new Date().toISOString()
   };
 

@@ -490,21 +490,21 @@ app.post('/api/transaction/create', async (req, res) => {
       keyPrefix: watcherConfig.keyPrefix
     });
 
-  const status = await saveStatus(
-    kvClient,
-    normalizedTicker,
-    finalTxId,
-    {
-      status: 'PENDING',
-      address: finalAddress,
-      expectedAmount: expectedAmount ?? '',
-      confirmations: 0,
-      sessionUUID,
-      paymentId: finalPaymentId,
-      createdAt
-    },
-    { ttlSeconds: watcherConfig.statusTtlSeconds, keyPrefix: watcherConfig.keyPrefix }
-  );
+    const status = await saveStatus(
+      kvClient,
+      normalizedTicker,
+      finalTxId,
+      {
+        status: 'PENDING',
+        address: finalAddress,
+        expectedAmount: expectedAmount ?? '',
+        confirmations: 0,
+        sessionUUID,
+        paymentId: finalPaymentId,
+        createdAt
+      },
+      { ttlSeconds: watcherConfig.statusTtlSeconds, keyPrefix: watcherConfig.keyPrefix }
+    );
 
     console.log('Status record saved', {
       ticker: normalizedTicker,
@@ -513,15 +513,14 @@ app.post('/api/transaction/create', async (req, res) => {
       keyPrefix: watcherConfig.keyPrefix
     });
 
-  res.json({
-    ok: true,
-    jobKey: job.key,
-    ttlSeconds: jobTtl,
-    status,
-    address: finalAddress,
-    paymentId: finalPaymentId,
-    txId: finalTxId
-  });
+    res.json({
+      ok: true,
+      jobKey: job.key,
+      ttlSeconds: jobTtl,
+      status,
+      address: finalAddress,
+      paymentId: finalPaymentId
+    });
   } catch (error) {
     console.error('Create transaction job error:', error);
     res.status(500).json({ error: 'Failed to create deposit job' });
