@@ -5,6 +5,7 @@ const {
   markSeen,
   isSeen,
   readStatus,
+  saveStatus,
   formatAtomicAmount
 } = require('./deposits');
 const { normalizeTicker } = require('./watcher-config');
@@ -194,18 +195,25 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
 
   const payments = payResp.data?.result?.payments || [];
 
-  const matches = payments.map((p) => {
+  const byHash = new Map();
+  for (const p of payments) {
     const height = asNumber(p.block_height, 0);
     const confirmations =
       height > 0 && currentHeight > 0 ? Math.max(currentHeight - height, 0) : asNumber(p.confirmations, 0);
-    return {
+    const entry = {
       hash: p.tx_hash,
       amountAtomic: p.amount,
       confirmations,
       address,
       ticker
     };
-  });
+    const existing = byHash.get(entry.hash);
+    if (!existing || confirmations > existing.confirmations) {
+      byHash.set(entry.hash, entry);
+    }
+  }
+
+  const matches = Array.from(byHash.values());
 
   watcherLogger.debug('RPC deposits (get_payments + get_height)', {
     ticker,
@@ -213,7 +221,7 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
     hasPaymentId: Boolean(paymentId),
     currentHeight,
     paymentIdsReturned: payments.length,
-    confirmations: matches.map((m) => ({ hash: m.hash, confirmations: m.confirmations }))
+    confirmationsByHash: matches.map((m) => ({ hash: m.hash, confirmations: m.confirmations }))
   });
 
   return matches;
