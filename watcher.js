@@ -368,20 +368,40 @@ const handleJob = async (kv, key, ticker, config) => {
     createdAt: job.createdAt || undefined
   };
 
+  const consolidationAttempted = String(job.consolidationAttempted || '').toLowerCase() === 'true';
+
   let consolidationResult = null;
-  try {
-    consolidationResult = await consolidateDeposit(ticker, confirmed, config);
-    if (consolidationResult?.tx_hash) {
-      payload.consolidationTxId = consolidationResult.tx_hash;
-      watcherLogger.info('Consolidation completed', {
-        key,
-        ticker,
-        consolidationTxId: consolidationResult.tx_hash
+  let consolidationError = null;
+
+  if (consolidationAttempted) {
+    watcherLogger.debug('Skipping consolidation (already attempted)', { key, ticker });
+  } else {
+    try {
+      consolidationResult = await consolidateDeposit(ticker, confirmed, config);
+      if (consolidationResult?.tx_hash) {
+        payload.consolidationTxId = consolidationResult.tx_hash;
+        watcherLogger.info('Consolidation completed', {
+          key,
+          ticker,
+          consolidationTxId: consolidationResult.tx_hash
+        });
+      }
+      await kv.hset(key, {
+        consolidationAttempted: true,
+        consolidationTxId: consolidationResult?.tx_hash || ''
+      });
+    } catch (error) {
+      consolidationError = error.message || 'unknown error';
+      watcherLogger.error(`Consolidation failed for ${key}:`, consolidationError);
+      await kv.hset(key, {
+        consolidationAttempted: true,
+        consolidationError
       });
     }
-  } catch (error) {
-    watcherLogger.error(`Consolidation failed for ${key}:`, error.message);
-    throw error;
+  }
+
+  if (consolidationError) {
+    payload.consolidationError = consolidationError;
   }
 
   const ok = await sendWebhook(payload, config);
