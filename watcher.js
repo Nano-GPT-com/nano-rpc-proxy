@@ -212,7 +212,8 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
     count: matches.length,
     hasPaymentId: Boolean(paymentId),
     currentHeight,
-    paymentIdsReturned: payments.length
+    paymentIdsReturned: payments.length,
+    confirmations: matches.map((m) => ({ hash: m.hash, confirmations: m.confirmations }))
   });
 
   return matches;
