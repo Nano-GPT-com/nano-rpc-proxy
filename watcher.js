@@ -343,7 +343,7 @@ const sendWebhook = async (payload, config) => {
   });
 
   if (response.status >= 200 && response.status < 300) {
-    watcherLogger.debug('Webhook delivered', { status: response.status, txId: payload.txId });
+  watcherLogger.debug('Webhook delivered', { status: response.status, paymentId: payload.paymentId });
     return true;
   }
 
@@ -384,9 +384,8 @@ const handleJob = async (kv, key, ticker, config) => {
   watcherLogger.debug('Handling job', {
     key,
     ticker,
-    txId: job.txId,
+    paymentId: paymentId || job.txId,
     address: job.address,
-    paymentId,
     minConfirmations
   });
 
