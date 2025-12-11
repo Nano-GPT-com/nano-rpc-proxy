@@ -151,6 +151,8 @@ The server watches Redis for pending deposit jobs and pushes a webhook once a tr
 - `COMPLETED`: confirmations reached; webhook sent.  
   Status includes `paidAmount`, `paidAmountAtomic`, `effectiveAmount`, `effectiveAmountAtomic`, `feeAtomic`, plus `paymentId`, `hash`, `confirmations`, `clientReference`, `address`. (No consolidation tx/error, no expectedAmount.)
 
+**Settlement note**: credit the user with `effectiveAmount` (net of the consolidation fee). `paidAmount` is the gross on-chain deposit.
+
 **Flow**
 1) Call `/api/transaction/create`; store `paymentId`, `address`, `client_reference`.
 2) User pays that address (integrated address embeds `paymentId` for zano).
