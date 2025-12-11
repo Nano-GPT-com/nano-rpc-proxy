@@ -13,6 +13,10 @@ services:
       - API_KEY=${API_KEY}
       - ZANO_RPC_URL=http://host.docker.internal:11212/json_rpc
       - ZANO_API_KEY=${ZANO_API_KEY}
+      - WATCHER_LOG_ERROR_FILE=/app/errors/watcher-errors.log
+    volumes:
+      - .:/app
+      - ./errors:/app/errors
     networks:
       - nano-network
     logging:

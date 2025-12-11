@@ -1,4 +1,6 @@
 const axios = require('axios');
+const fs = require('fs');
+const util = require('util');
 const {
   getDepositJob,
   deleteDepositJob,
@@ -14,20 +16,34 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const LOG_LEVELS = { error: 0, warn: 1, info: 2, debug: 3 };
 
-const createLogger = (level = 'info') => {
+const createLogger = (level = 'info', errorFile = '') => {
   const current = LOG_LEVELS[level] ?? LOG_LEVELS.info;
   const prefix = '[watcher]';
   const should = (lvl) => (LOG_LEVELS[lvl] ?? LOG_LEVELS.info) <= current;
+  const logToFile = (lvl, args) => {
+    if (!errorFile) return;
+    const line =
+      `${new Date().toISOString()} [${lvl}] ` +
+      util.format(...args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : a))) +
+      '\n';
+    fs.appendFile(errorFile, line, () => {});
+  };
 
   return {
-    error: (...args) => should('error') && console.error(prefix, ...args),
-    warn: (...args) => should('warn') && console.warn(prefix, ...args),
+    error: (...args) => {
+      if (should('error')) console.error(prefix, ...args);
+      logToFile('error', args);
+    },
+    warn: (...args) => {
+      if (should('warn')) console.warn(prefix, ...args);
+      logToFile('warn', args);
+    },
     info: (...args) => should('info') && console.log(prefix, ...args),
     debug: (...args) => should('debug') && console.debug(prefix, ...args)
   };
 };
 
-let watcherLogger = createLogger(process.env.WATCHER_LOG_LEVEL || 'info');
+let watcherLogger = createLogger(process.env.WATCHER_LOG_LEVEL || 'info', process.env.WATCHER_LOG_ERROR_FILE || '');
 
 const asNumber = (value, fallback = 0) => {
   const num = Number(value);
@@ -557,7 +573,7 @@ const processTickerJobs = async (kv, ticker, config) => {
 };
 
 const startDepositWatcher = (kv, config) => {
-  watcherLogger = createLogger(config.logLevel);
+  watcherLogger = createLogger(config.logLevel, config.logErrorFile);
 
   if (!config.enabled || !config.tickers || config.tickers.length === 0) {
     watcherLogger.info('Deposit watcher disabled (no tickers configured).');

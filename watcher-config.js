@@ -35,6 +35,7 @@ const loadWatcherConfig = (overrides = {}) => {
       fusd: parseNumber(process.env.WATCHER_MIN_CONFIRMATIONS_FUSD, 2)
     },
     logLevel: parseLogLevel(process.env.WATCHER_LOG_LEVEL, 'info'),
+    logErrorFile: process.env.WATCHER_LOG_ERROR_FILE || '',
     decimals: {
       zano: parseNumber(process.env.ZANO_DECIMALS, 12),
       fusd: parseNumber(process.env.FUSD_DECIMALS, 12)
