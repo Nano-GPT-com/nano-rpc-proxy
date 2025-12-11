@@ -498,8 +498,8 @@ app.post('/api/transaction/create', async (req, res) => {
     const jobTtl = parsePositiveInt(ttlSeconds, watcherConfig.jobTtlSeconds);
     const minConfirmations = getMinConfirmations(normalizedTicker);
 
-  const job = await createDepositJob(
-    kvClient,
+    const job = await createDepositJob(
+      kvClient,
       {
         ticker: normalizedTicker,
         address: finalAddress,
@@ -553,7 +553,8 @@ app.post('/api/transaction/create', async (req, res) => {
       ttlSeconds: jobTtl,
       status,
       address: finalAddress,
-      paymentId: finalPaymentId
+      paymentId: finalPaymentId,
+      expiresAt: new Date(Date.now() + jobTtl * 1000).toISOString()
     });
   } catch (error) {
     console.error('Create transaction job error:', error);
