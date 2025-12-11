@@ -210,7 +210,9 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
   watcherLogger.debug('RPC deposits (get_payments + get_height)', {
     ticker,
     count: matches.length,
-    hasPaymentId: Boolean(paymentId)
+    hasPaymentId: Boolean(paymentId),
+    currentHeight,
+    paymentIdsReturned: payments.length
   });
 
   return matches;
