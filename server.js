@@ -350,26 +350,26 @@ app.post('/zano', async (req, res) => {
 });
 
 // Transaction status (public) and webhook/capture endpoints (protected)
-app.get('/api/transaction/status/:ticker/:txId', async (req, res) => {
+app.get('/api/transaction/status/:ticker/:paymentId', async (req, res) => {
   try {
     if (!ensureKvClient(res)) return;
 
     const ticker = normalizeTicker(req.params.ticker);
-    const { txId } = req.params;
+    const { paymentId } = req.params;
 
-    if (!ticker || !txId) {
-      return res.status(400).json({ error: 'ticker and txId are required' });
+    if (!ticker || !paymentId) {
+      return res.status(400).json({ error: 'ticker and paymentId are required' });
     }
 
-    const status = await readStatus(kvClient, ticker, txId, watcherConfig.keyPrefix);
+    const status = await readStatus(kvClient, ticker, paymentId, watcherConfig.keyPrefix);
     if (!status) {
-      console.log('Status lookup miss', { ticker, txId, keyPrefix: watcherConfig.keyPrefix });
+      console.log('Status lookup miss', { ticker, paymentId, keyPrefix: watcherConfig.keyPrefix });
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
     console.log('Status lookup hit', {
       ticker,
-      txId,
+      paymentId,
       keyPrefix: watcherConfig.keyPrefix,
       status: status.status,
       updatedAt: status.updatedAt
@@ -394,8 +394,6 @@ app.post('/api/transaction/create', async (req, res) => {
       ticker,
       address,
       payment_id: paymentIdInput,
-      txId,
-      jobId,
       expectedAmount,
       // minConf is intentionally ignored; min confirmations are server-configured
       sessionUUID,
@@ -450,26 +448,32 @@ app.post('/api/transaction/create', async (req, res) => {
       }
     }
 
-    if (!finalAddress || !txId || !sessionUUID) {
-      return res.status(400).json({ error: 'address, txId, and sessionUUID are required' });
+    const finalPaymentId = generatedPaymentId || paymentIdInput || '';
+    const finalTxId = finalPaymentId; // use paymentId as canonical id
+
+    if (!finalAddress || !sessionUUID) {
+      return res.status(400).json({ error: 'address and sessionUUID are required' });
+    }
+
+    if (!finalPaymentId) {
+      return res.status(400).json({ error: 'payment_id is required (or allow us to generate one)' });
     }
 
     const createdAt = new Date().toISOString();
     const jobTtl = parsePositiveInt(ttlSeconds, watcherConfig.jobTtlSeconds);
     const minConfirmations = getMinConfirmations(normalizedTicker);
 
-    const job = await createDepositJob(
-      kvClient,
-      {
-        ticker: normalizedTicker,
-        address: finalAddress,
-        txId,
-        jobId,
-        expectedAmount: expectedAmount ?? '',
-        minConf: minConfirmations,
-        sessionUUID,
-        paymentId: generatedPaymentId || paymentIdInput || '',
-        createdAt
+  const job = await createDepositJob(
+    kvClient,
+    {
+      ticker: normalizedTicker,
+      address: finalAddress,
+      txId: finalTxId,
+      expectedAmount: expectedAmount ?? '',
+      minConf: minConfirmations,
+      sessionUUID,
+      paymentId: finalPaymentId,
+      createdAt
       },
       {
         ttlSeconds: jobTtl,
@@ -478,46 +482,46 @@ app.post('/api/transaction/create', async (req, res) => {
       }
     );
 
-    console.log('Deposit job created', {
-      key: job.key,
-      ticker: normalizedTicker,
-      txId,
-      paymentId: generatedPaymentId || paymentIdInput || '',
+  console.log('Deposit job created', {
+    key: job.key,
+    ticker: normalizedTicker,
+    txId: finalTxId,
+    paymentId: finalPaymentId,
       keyPrefix: watcherConfig.keyPrefix
     });
 
-    const status = await saveStatus(
-      kvClient,
-      normalizedTicker,
-      txId,
-      {
-        status: 'PENDING',
-        address: finalAddress,
-        expectedAmount: expectedAmount ?? '',
-        confirmations: 0,
-        jobId: jobId || txId,
-        sessionUUID,
-        paymentId: generatedPaymentId || paymentIdInput || '',
-        createdAt
-      },
-      { ttlSeconds: watcherConfig.statusTtlSeconds, keyPrefix: watcherConfig.keyPrefix }
-    );
+  const status = await saveStatus(
+    kvClient,
+    normalizedTicker,
+    finalTxId,
+    {
+      status: 'PENDING',
+      address: finalAddress,
+      expectedAmount: expectedAmount ?? '',
+      confirmations: 0,
+      sessionUUID,
+      paymentId: finalPaymentId,
+      createdAt
+    },
+    { ttlSeconds: watcherConfig.statusTtlSeconds, keyPrefix: watcherConfig.keyPrefix }
+  );
 
     console.log('Status record saved', {
       ticker: normalizedTicker,
-      txId,
-      paymentId: generatedPaymentId || paymentIdInput || '',
+      txId: finalTxId,
+      paymentId: finalPaymentId,
       keyPrefix: watcherConfig.keyPrefix
     });
 
-    res.json({
-      ok: true,
-      jobKey: job.key,
-      ttlSeconds: jobTtl,
-      status,
-      address: finalAddress,
-      paymentId: generatedPaymentId || paymentIdInput || null
-    });
+  res.json({
+    ok: true,
+    jobKey: job.key,
+    ttlSeconds: jobTtl,
+    status,
+    address: finalAddress,
+    paymentId: finalPaymentId,
+    txId: finalTxId
+  });
   } catch (error) {
     console.error('Create transaction job error:', error);
     res.status(500).json({ error: 'Failed to create deposit job' });
@@ -538,18 +542,8 @@ app.post('/api/transaction/callback/:ticker', async (req, res) => {
     }
 
     const ticker = normalizeTicker(req.params.ticker || req.body?.ticker);
-    const {
-      txId,
-      address,
-      amount,
-      amountAtomic,
-      expectedAmount,
-      confirmations,
-      hash,
-      jobId,
-      sessionUUID,
-      createdAt
-    } = req.body || {};
+    const { paymentId, address, amount, amountAtomic, expectedAmount, confirmations, hash, sessionUUID, createdAt } =
+      req.body || {};
 
     if (!ticker) {
       return res.status(400).json({ error: 'Ticker is required in path or body' });
@@ -559,8 +553,8 @@ app.post('/api/transaction/callback/:ticker', async (req, res) => {
       return res.status(400).json({ error: `Ticker ${ticker} is not enabled for the watcher` });
     }
 
-    if (!txId || !address || !hash) {
-      return res.status(400).json({ error: 'txId, address, and hash are required' });
+    if (!paymentId || !address || !hash) {
+      return res.status(400).json({ error: 'paymentId, address, and hash are required' });
     }
 
     const decimals = getTickerDecimals(ticker);
@@ -568,7 +562,7 @@ app.post('/api/transaction/callback/:ticker', async (req, res) => {
     const payload = await saveStatus(
       kvClient,
       ticker,
-      txId,
+      paymentId,
       {
         status: 'COMPLETED',
         address,
@@ -577,7 +571,6 @@ app.post('/api/transaction/callback/:ticker', async (req, res) => {
         hash,
         paidAmount,
         paidAmountAtomic: amountAtomic ?? '',
-        jobId: jobId || txId,
         sessionUUID: sessionUUID || '',
         createdAt: createdAt || new Date().toISOString()
       },

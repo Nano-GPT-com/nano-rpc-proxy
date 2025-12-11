@@ -2,8 +2,8 @@ const { normalizeTicker } = require('./watcher-config');
 
 const DEFAULT_PREFIX = process.env.WATCHER_KEY_PREFIX || 'zano';
 
-const buildJobKey = (ticker, jobId, prefix = DEFAULT_PREFIX) =>
-  `${prefix}:deposit:${normalizeTicker(ticker)}:${jobId}`;
+const buildJobKey = (ticker, id, prefix = DEFAULT_PREFIX) =>
+  `${prefix}:deposit:${normalizeTicker(ticker)}:${id}`;
 const buildSeenKey = (hash, prefix = DEFAULT_PREFIX) => `${prefix}:seen:${hash}`;
 const buildStatusKey = (ticker, txId, prefix = DEFAULT_PREFIX) =>
   `${prefix}:transaction:status:${normalizeTicker(ticker)}:${txId}`;
@@ -45,23 +45,22 @@ const ensureTimestamp = (value) => {
 
 const createDepositJob = async (kv, data, { ttlSeconds, defaultMinConf, keyPrefix } = {}) => {
   const ticker = normalizeTicker(data.ticker);
-  const jobId = data.jobId || data.txId;
+  const id = data.paymentId || data.txId;
   const prefix = keyPrefix || DEFAULT_PREFIX;
 
-  if (!ticker || !jobId || !data.address || !data.txId) {
-    throw new Error('ticker, address, txId, and jobId are required to create a deposit job');
+  if (!ticker || !id || !data.address) {
+    throw new Error('ticker, address, and paymentId are required to create a deposit job');
   }
 
-  const key = buildJobKey(ticker, jobId, prefix);
+  const key = buildJobKey(ticker, id, prefix);
   const payload = {
     ticker,
     address: data.address,
-    txId: data.txId,
-    jobId,
+    txId: id,
     expectedAmount: data.expectedAmount ?? '',
     minConf: data.minConf || defaultMinConf || '',
     sessionUUID: data.sessionUUID || '',
-    paymentId: data.paymentId || '',
+    paymentId: data.paymentId || data.txId || '',
     createdAt: ensureTimestamp(data.createdAt)
   };
 

@@ -355,7 +355,6 @@ const handleJob = async (kv, key, ticker, config) => {
   const decimals = config.decimals[ticker] || 12;
   const amountAtomic = confirmed.amountAtomic ?? confirmed.amount ?? '';
   const payload = {
-    jobId: job.jobId || job.txId,
     txId: job.txId,
     address: job.address,
     amount: formatAtomicAmount(amountAtomic, decimals) || '',
