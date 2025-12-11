@@ -215,7 +215,9 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
   for (const p of payments) {
     const height = asNumber(p.block_height, 0);
     const confirmations =
-      height > 0 && currentHeight > 0 ? Math.max(currentHeight - height, 0) : asNumber(p.confirmations, 0);
+      height > 0 && currentHeight > 0
+        ? Math.max(currentHeight - height + 1, 0) // inclusive of mined block
+        : asNumber(p.confirmations, 0);
     const entry = {
       hash: p.tx_hash,
       amountAtomic: p.amount,
