@@ -52,6 +52,12 @@ class KvClient {
   async getJson(key) {
     const raw = await this.get(key);
     if (!raw) return null;
+
+    // Upstash client may auto-parse JSON and return an object; accept that.
+    if (typeof raw === 'object') {
+      return raw;
+    }
+
     try {
       return JSON.parse(raw);
     } catch (_) {
