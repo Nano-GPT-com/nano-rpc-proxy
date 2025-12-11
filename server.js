@@ -370,9 +370,23 @@ app.get('/api/transaction/status/:ticker/:paymentId', async (req, res) => {
       kvTokenSet: Boolean(process.env.KV_REST_API_TOKEN)
     });
 
+    const statusKey = `${watcherConfig.keyPrefix}:transaction:status:${ticker}:${paymentId}`;
+    let rawStatus = null;
+    try {
+      rawStatus = await kvClient.get(statusKey);
+    } catch (e) {
+      console.error('Status raw get error', { key: statusKey, error: e.message });
+    }
+
     const status = await readStatus(kvClient, ticker, paymentId, watcherConfig.keyPrefix);
     if (!status) {
-      console.log('Status lookup miss', { ticker, paymentId, keyPrefix: watcherConfig.keyPrefix });
+      console.log('Status lookup miss', {
+        ticker,
+        paymentId,
+        keyPrefix: watcherConfig.keyPrefix,
+        statusKey,
+        rawStatus
+      });
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
