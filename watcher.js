@@ -429,7 +429,6 @@ const handleJob = async (kv, key, ticker, config) => {
           {
             status: 'CONFIRMING',
             address: job.address,
-            expectedAmount: job.expectedAmount || '',
             confirmations: asNumber(best.confirmations, 0),
             hash: best.hash,
             paymentId: job.paymentId || job.txId,
@@ -475,15 +474,19 @@ const handleJob = async (kv, key, ticker, config) => {
     return;
   }
 
-  const decimals = config.decimals[ticker] || 12;
-  const amountAtomic = confirmed.amountAtomic ?? confirmed.amount ?? '';
+ const decimals = config.decimals[ticker] || 12;
+ const amountAtomic = confirmed.amountAtomic ?? confirmed.amount ?? '';
+  const amountAtomicNum = asNumber(amountAtomic, 0);
   const payload = {
     paymentId: job.txId,
     address: job.address,
     amount: formatAtomicAmount(amountAtomic, decimals) || '',
     amountAtomic: String(amountAtomic),
+    paidAmount: formatAtomicAmount(amountAtomic, decimals) || '',
+    paidAmountAtomic: String(amountAtomic),
+    effectiveAmount: formatAtomicAmount(amountAtomic, decimals) || '',
+    effectiveAmountAtomic: String(amountAtomic),
     feeAtomic: null,
-    expectedAmount: job.expectedAmount || undefined,
     confirmations: asNumber(confirmed.confirmations, 0),
     hash: confirmed.hash,
     ticker,
@@ -507,8 +510,8 @@ const handleJob = async (kv, key, ticker, config) => {
     });
   } else if (consolidationEnabled && canConsolidateNow) {
     try {
-      consolidationResult = await consolidateDeposit(ticker, confirmed, config);
-      if (consolidationResult?.tx_hash) {
+     consolidationResult = await consolidateDeposit(ticker, confirmed, config);
+     if (consolidationResult?.tx_hash) {
         payload.consolidationTxId = consolidationResult.tx_hash;
         watcherLogger.info('Consolidation completed', {
           key,
@@ -518,9 +521,9 @@ const handleJob = async (kv, key, ticker, config) => {
       }
       if (rules.feeAtomic) {
         payload.feeAtomic = rules.feeAtomic;
-        const netAtomic = asNumber(confirmed.amountAtomic, 0) - asNumber(rules.feeAtomic, 0);
-        payload.amountAtomic = String(netAtomic);
-        payload.amount = formatAtomicAmount(netAtomic, decimals) || '';
+        const netAtomic = amountAtomicNum - asNumber(rules.feeAtomic, 0);
+        payload.effectiveAmountAtomic = String(netAtomic);
+        payload.effectiveAmount = formatAtomicAmount(netAtomic, decimals) || '';
       }
       await kv.hset(key, {
         consolidationAttempted: true,
@@ -549,19 +552,19 @@ const handleJob = async (kv, key, ticker, config) => {
           kv,
           ticker,
           job.txId,
-          {
+         {
             status: 'COMPLETED',
             address: job.address,
-            expectedAmount: job.expectedAmount || '',
             confirmations: asNumber(confirmed.confirmations, 0),
             hash: confirmed.hash,
             paymentId: job.paymentId || job.txId,
             clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
-            paidAmount: payload.amount,
-            paidAmountAtomic: payload.amountAtomic,
-            consolidationTxId: payload.consolidationTxId,
-            consolidationError
-          },
+            paidAmount: formatAtomicAmount(confirmed.amountAtomic ?? confirmed.amount ?? '', decimals) || '',
+            paidAmountAtomic: String(confirmed.amountAtomic ?? confirmed.amount ?? ''),
+            effectiveAmount: payload.effectiveAmount || payload.amount,
+            effectiveAmountAtomic: payload.effectiveAmountAtomic || payload.amountAtomic,
+            feeAtomic: payload.feeAtomic || undefined
+         },
           { ttlSeconds: config.statusTtlSeconds, keyPrefix: config.keyPrefix }
         );
       } catch (err) {

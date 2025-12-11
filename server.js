@@ -532,7 +532,6 @@ app.post('/api/transaction/create', async (req, res) => {
       {
         status: 'PENDING',
         address: finalAddress,
-        expectedAmount: expectedAmount ?? '',
         confirmations: 0,
         clientReference,
         paymentId: finalPaymentId,
