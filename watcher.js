@@ -138,12 +138,18 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
     return [];
   }
 
+  // Use get_recent_txs_and_info2 to obtain height and compute confirmations
   const payload = {
     jsonrpc: '2.0',
     id: `watcher-${Date.now()}`,
-    method: 'get_payments',
+    method: 'get_recent_txs_and_info2',
     params: {
-      payment_id: paymentId
+      count: 200,
+      exclude_mining_txs: false,
+      exclude_unconfirmed: false,
+      offset: 0,
+      order: 'FROM_END_TO_BEGIN',
+      update_provision_info: true
     }
   };
 
@@ -154,7 +160,7 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
           password: config.zanoRpcPassword || ''
         }
       : undefined,
-    timeout: Math.max(config.webhookTimeoutMs, 10000),
+    timeout: Math.max(config.webhookTimeoutMs, 15000),
     validateStatus: () => true
   });
 
@@ -165,14 +171,31 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
     );
   }
 
-  const payments = response.data?.result?.payments || [];
-  return payments.map((p) => ({
-    hash: p.tx_hash,
-    amountAtomic: p.amount,
-    confirmations: 100, // treat get_payments as sufficiently confirmed
-    address,
-    ticker
-  }));
+  const currentHeight = asNumber(response.data?.result?.pi?.curent_height, 0);
+  const transfers = response.data?.result?.transfers || [];
+
+  const matches = transfers
+    .filter((t) => t.is_income === true)
+    .filter((t) => (t.payment_id || '').trim() === paymentId)
+    .map((t) => {
+      const height = asNumber(t.height, 0);
+      const confirmations = height > 0 && currentHeight > 0 ? Math.max(currentHeight - height, 0) : 0;
+      return {
+        hash: t.tx_hash,
+        amountAtomic: t.amount,
+        confirmations,
+        address,
+        ticker
+      };
+    });
+
+  watcherLogger.debug('RPC deposits (recent_txs)', {
+    ticker,
+    count: matches.length,
+    hasPaymentId: Boolean(paymentId)
+  });
+
+  return matches;
 };
 
 const consolidateDeposit = async (ticker, deposit, config) => {
@@ -187,6 +210,17 @@ const consolidateDeposit = async (ticker, deposit, config) => {
   }
 
   const fee = Number.isFinite(rules.feeAtomic) ? rules.feeAtomic : 10000000000;
+  const amountAtomic = Number(deposit.amountAtomic || deposit.amount || 0);
+  const sendAmount = amountAtomic - fee;
+
+  if (sendAmount <= 0) {
+    watcherLogger.warn('Consolidation skipped (amount <= fee)', {
+      ticker,
+      amountAtomic,
+      fee
+    });
+    return null;
+  }
 
   const payload = {
     jsonrpc: '2.0',
@@ -196,7 +230,7 @@ const consolidateDeposit = async (ticker, deposit, config) => {
       destinations: [
         {
           address: rules.address,
-          amount: Number(deposit.amountAtomic || deposit.amount || 0)
+          amount: sendAmount
         }
       ],
       fee,
