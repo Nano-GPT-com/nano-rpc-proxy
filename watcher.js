@@ -174,7 +174,7 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
   const currentHeight = asNumber(response.data?.result?.pi?.curent_height, 0);
   const transfers = response.data?.result?.transfers || [];
 
-  const matches = transfers
+  let matches = transfers
     .filter((t) => t.is_income === true)
     .filter((t) => (t.payment_id || '').trim() === paymentId)
     .map((t) => {
@@ -194,6 +194,54 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
     count: matches.length,
     hasPaymentId: Boolean(paymentId)
   });
+
+  // Fallback: if no matches in recent txs, try get_bulk_payments (slower but targeted)
+  if (matches.length === 0) {
+    const bulkPayload = {
+      jsonrpc: '2.0',
+      id: `watcher-bulk-${Date.now()}`,
+      method: 'get_bulk_payments',
+      params: { payment_ids: [paymentId], min_block_height: 0 }
+    };
+
+    const bulkResp = await axios.post(config.zanoRpcUrl, bulkPayload, {
+      auth: config.zanoRpcUser
+        ? {
+            username: config.zanoRpcUser,
+            password: config.zanoRpcPassword || ''
+          }
+        : undefined,
+      timeout: Math.max(config.webhookTimeoutMs, 15000),
+      validateStatus: () => true
+    });
+
+    if (bulkResp.status >= 400 || bulkResp.data?.error) {
+      throw rpcError(
+        `Zano RPC error ${bulkResp.status}: ${bulkResp.data?.error?.message || 'unknown'}`,
+        bulkResp.data
+      );
+    }
+
+    const payments = bulkResp.data?.result?.payments || [];
+    matches = payments.map((p) => {
+      const height = asNumber(p.block_height, 0);
+      const confirmations =
+        height > 0 && currentHeight > 0 ? Math.max(currentHeight - height, 0) : asNumber(p.confirmations, 0);
+      return {
+        hash: p.tx_hash,
+        amountAtomic: p.amount,
+        confirmations,
+        address,
+        ticker
+      };
+    });
+
+    watcherLogger.debug('RPC deposits (bulk_payments)', {
+      ticker,
+      count: matches.length,
+      hasPaymentId: Boolean(paymentId)
+    });
+  }
 
   return matches;
 };
