@@ -138,110 +138,80 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
     return [];
   }
 
-  // Use get_recent_txs_and_info2 to obtain height and compute confirmations
-  const payload = {
+  // First: get current height via get_wallet_info
+  const heightPayload = {
     jsonrpc: '2.0',
-    id: `watcher-${Date.now()}`,
-    method: 'get_recent_txs_and_info2',
-    params: {
-      count: 200,
-      exclude_mining_txs: false,
-      exclude_unconfirmed: false,
-      offset: 0,
-      order: 'FROM_END_TO_BEGIN',
-      update_provision_info: true
-    }
+    id: `wallet-info-${Date.now()}`,
+    method: 'get_wallet_info',
+    params: {}
   };
 
-  const response = await axios.post(config.zanoRpcUrl, payload, {
+  const heightResp = await axios.post(config.zanoRpcUrl, heightPayload, {
     auth: config.zanoRpcUser
       ? {
           username: config.zanoRpcUser,
           password: config.zanoRpcPassword || ''
         }
       : undefined,
-    timeout: Math.max(config.webhookTimeoutMs, 15000),
+    timeout: Math.max(config.webhookTimeoutMs, 8000),
     validateStatus: () => true
   });
 
-  if (response.status >= 400 || response.data?.error) {
+  if (heightResp.status >= 400 || heightResp.data?.error) {
     throw rpcError(
-      `Zano RPC error ${response.status}: ${response.data?.error?.message || 'unknown'}`,
-      response.data
+      `Zano RPC error ${heightResp.status}: ${heightResp.data?.error?.message || 'unknown'}`,
+      heightResp.data
     );
   }
 
-  const currentHeight = asNumber(response.data?.result?.pi?.curent_height, 0);
-  const transfers = response.data?.result?.transfers || [];
+  const currentHeight = asNumber(heightResp.data?.result?.current_height, 0);
 
-  let matches = transfers
-    .filter((t) => t.is_income === true)
-    .filter((t) => (t.payment_id || '').trim() === paymentId)
-    .map((t) => {
-      const height = asNumber(t.height, 0);
-      const confirmations = height > 0 && currentHeight > 0 ? Math.max(currentHeight - height, 0) : 0;
-      return {
-        hash: t.tx_hash,
-        amountAtomic: t.amount,
-        confirmations,
-        address,
-        ticker
-      };
-    });
+  // Then: get payments (returns block_height)
+  const payPayload = {
+    jsonrpc: '2.0',
+    id: `watcher-${Date.now()}`,
+    method: 'get_payments',
+    params: { payment_id: paymentId }
+  };
 
-  watcherLogger.debug('RPC deposits (recent_txs)', {
+  const payResp = await axios.post(config.zanoRpcUrl, payPayload, {
+    auth: config.zanoRpcUser
+      ? {
+          username: config.zanoRpcUser,
+          password: config.zanoRpcPassword || ''
+        }
+      : undefined,
+    timeout: Math.max(config.webhookTimeoutMs, 10000),
+    validateStatus: () => true
+  });
+
+  if (payResp.status >= 400 || payResp.data?.error) {
+    throw rpcError(
+      `Zano RPC error ${payResp.status}: ${payResp.data?.error?.message || 'unknown'}`,
+      payResp.data
+    );
+  }
+
+  const payments = payResp.data?.result?.payments || [];
+
+  const matches = payments.map((p) => {
+    const height = asNumber(p.block_height, 0);
+    const confirmations =
+      height > 0 && currentHeight > 0 ? Math.max(currentHeight - height, 0) : asNumber(p.confirmations, 0);
+    return {
+      hash: p.tx_hash,
+      amountAtomic: p.amount,
+      confirmations,
+      address,
+      ticker
+    };
+  });
+
+  watcherLogger.debug('RPC deposits (get_payments + get_height)', {
     ticker,
     count: matches.length,
     hasPaymentId: Boolean(paymentId)
   });
-
-  // Fallback: if no matches in recent txs, try get_bulk_payments (slower but targeted)
-  if (matches.length === 0) {
-    const bulkPayload = {
-      jsonrpc: '2.0',
-      id: `watcher-bulk-${Date.now()}`,
-      method: 'get_bulk_payments',
-      params: { payment_ids: [paymentId], min_block_height: 0 }
-    };
-
-    const bulkResp = await axios.post(config.zanoRpcUrl, bulkPayload, {
-      auth: config.zanoRpcUser
-        ? {
-            username: config.zanoRpcUser,
-            password: config.zanoRpcPassword || ''
-          }
-        : undefined,
-      timeout: Math.max(config.webhookTimeoutMs, 15000),
-      validateStatus: () => true
-    });
-
-    if (bulkResp.status >= 400 || bulkResp.data?.error) {
-      throw rpcError(
-        `Zano RPC error ${bulkResp.status}: ${bulkResp.data?.error?.message || 'unknown'}`,
-        bulkResp.data
-      );
-    }
-
-    const payments = bulkResp.data?.result?.payments || [];
-    matches = payments.map((p) => {
-      const height = asNumber(p.block_height, 0);
-      const confirmations =
-        height > 0 && currentHeight > 0 ? Math.max(currentHeight - height, 0) : asNumber(p.confirmations, 0);
-      return {
-        hash: p.tx_hash,
-        amountAtomic: p.amount,
-        confirmations,
-        address,
-        ticker
-      };
-    });
-
-    watcherLogger.debug('RPC deposits (bulk_payments)', {
-      ticker,
-      count: matches.length,
-      hasPaymentId: Boolean(paymentId)
-    });
-  }
 
   return matches;
 };
