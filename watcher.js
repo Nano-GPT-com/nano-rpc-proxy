@@ -455,6 +455,16 @@ const handleJob = async (kv, key, ticker, config) => {
     amountAtomic: confirmed.amountAtomic
   });
 
+  const rules = config.consolidation?.[ticker] || {};
+  const consolidationEnabled = Boolean(rules.enabled && rules.address);
+  const consolidationMinConf =
+    asNumber(rules.minConfirmations, undefined) ??
+    config.minConfirmations[ticker] ??
+    config.minConfirmations.zano ??
+    0;
+  const canConsolidateNow = consolidationEnabled && asNumber(confirmed.confirmations, 0) >= consolidationMinConf;
+  const webhookSent = String(job.webhookSent || '').toLowerCase() === 'true';
+
   if (await isSeen(kv, confirmed.hash, config.keyPrefix)) {
     watcherLogger.info('Deposit already seen, deleting job', {
       key,
@@ -487,21 +497,14 @@ const handleJob = async (kv, key, ticker, config) => {
 
   if (consolidationAttempted) {
     watcherLogger.debug('Skipping consolidation (already attempted)', { key, ticker });
-  } else {
-    const consolidationMinConf =
-      config.consolidation?.[ticker]?.minConfirmations ??
-      config.minConfirmations[ticker] ??
-      config.minConfirmations.zano ??
-      0;
-
-    if (asNumber(confirmed.confirmations, 0) < consolidationMinConf) {
-      watcherLogger.info('Consolidation deferred (not enough confirmations to spend)', {
-        key,
-        ticker,
-        confirmations: confirmed.confirmations,
-        required: consolidationMinConf
-      });
-    } else {
+  } else if (consolidationEnabled && !canConsolidateNow) {
+    watcherLogger.info('Consolidation deferred (not enough confirmations to spend)', {
+      key,
+      ticker,
+      confirmations: confirmed.confirmations,
+      required: consolidationMinConf
+    });
+  } else if (consolidationEnabled && canConsolidateNow) {
     try {
       consolidationResult = await consolidateDeposit(ticker, confirmed, config);
       if (consolidationResult?.tx_hash) {
@@ -525,53 +528,63 @@ const handleJob = async (kv, key, ticker, config) => {
       });
     }
   }
-  }
 
   if (consolidationError) {
     payload.consolidationError = consolidationError;
   }
 
-  const ok = await sendWebhook(payload, config);
-  if (ok) {
-    try {
-      await saveStatus(
-        kv,
+  let webhookOk = true;
+  if (!webhookSent) {
+    webhookOk = await sendWebhook(payload, config);
+    if (webhookOk) {
+      try {
+        await saveStatus(
+          kv,
+          ticker,
+          job.txId,
+          {
+            status: 'COMPLETED',
+            address: job.address,
+            expectedAmount: job.expectedAmount || '',
+            confirmations: asNumber(confirmed.confirmations, 0),
+            hash: confirmed.hash,
+            paymentId: job.paymentId || job.txId,
+            clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
+            paidAmount: payload.amount,
+            paidAmountAtomic: payload.amountAtomic,
+            consolidationTxId: payload.consolidationTxId,
+            consolidationError
+          },
+          { ttlSeconds: config.statusTtlSeconds, keyPrefix: config.keyPrefix }
+        );
+      } catch (err) {
+        watcherLogger.warn('Failed to save COMPLETED status', { key, ticker, error: err.message });
+      }
+      await kv.hset(key, { webhookSent: true });
+      watcherLogger.info('Webhook sent and marked as completed', {
+        key,
+        hash: confirmed.hash,
         ticker,
-        job.txId,
-        {
-          status: 'COMPLETED',
-          address: job.address,
-          expectedAmount: job.expectedAmount || '',
-          confirmations: asNumber(confirmed.confirmations, 0),
-          hash: confirmed.hash,
-          paymentId: job.paymentId || job.txId,
-          clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
-          paidAmount: payload.amount,
-          paidAmountAtomic: payload.amountAtomic,
-          consolidationTxId: payload.consolidationTxId,
-          consolidationError
-        },
-        { ttlSeconds: config.statusTtlSeconds, keyPrefix: config.keyPrefix }
-      );
-    } catch (err) {
-      watcherLogger.warn('Failed to save COMPLETED status', { key, ticker, error: err.message });
+        paymentId: payload.paymentId
+      });
+    } else {
+      watcherLogger.warn('Webhook not accepted, job retained', {
+        key,
+        hash: confirmed.hash,
+        ticker,
+        paymentId: payload.paymentId
+      });
     }
+  }
 
-    watcherLogger.info('Webhook sent and job completed', {
-      key,
-      hash: confirmed.hash,
-      ticker,
-      paymentId: payload.paymentId
-    });
+  const canDelete =
+    webhookOk &&
+    (!consolidationEnabled || consolidationAttempted || canConsolidateNow) &&
+    (!consolidationEnabled || consolidationResult || !canConsolidateNow === false);
+
+  if (canDelete && webhookOk) {
     await markSeen(kv, confirmed.hash, config.seenTtlSeconds, config.keyPrefix);
     await deleteDepositJob(kv, key);
-  } else {
-    watcherLogger.warn('Webhook not accepted, job retained', {
-      key,
-      hash: confirmed.hash,
-      ticker,
-      paymentId: payload.paymentId
-    });
   }
 };
 
