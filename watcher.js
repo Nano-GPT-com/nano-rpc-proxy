@@ -354,7 +354,7 @@ const handleJob = async (kv, key, ticker, config) => {
             confirmations: asNumber(best.confirmations, 0),
             hash: best.hash,
             paymentId: job.paymentId || job.txId,
-            sessionUUID: job.sessionUUID || job.sessionId || undefined,
+            clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
             createdAt: job.createdAt || undefined
           },
           { ttlSeconds: config.statusTtlSeconds, keyPrefix: config.keyPrefix }
@@ -397,7 +397,7 @@ const handleJob = async (kv, key, ticker, config) => {
     confirmations: asNumber(confirmed.confirmations, 0),
     hash: confirmed.hash,
     ticker,
-    sessionUUID: job.sessionUUID || job.sessionId || undefined,
+    clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
     createdAt: job.createdAt || undefined
   };
 

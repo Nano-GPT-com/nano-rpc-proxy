@@ -426,7 +426,8 @@ app.post('/api/transaction/create', async (req, res) => {
       payment_id: paymentIdInput,
       expectedAmount,
       // minConf is intentionally ignored; min confirmations are server-configured
-      sessionUUID,
+      client_reference: clientReferenceInput,
+      sessionUUID, // legacy compatibility
       ttlSeconds
     } = req.body || {};
 
@@ -480,9 +481,10 @@ app.post('/api/transaction/create', async (req, res) => {
 
     const finalPaymentId = generatedPaymentId || paymentIdInput || '';
     const finalTxId = finalPaymentId; // use paymentId as canonical id
+    const clientReference = clientReferenceInput || sessionUUID || '';
 
-    if (!finalAddress || !sessionUUID) {
-      return res.status(400).json({ error: 'address and sessionUUID are required' });
+    if (!finalAddress || !clientReference) {
+      return res.status(400).json({ error: 'address and client_reference are required' });
     }
 
     if (!finalPaymentId) {
@@ -495,15 +497,15 @@ app.post('/api/transaction/create', async (req, res) => {
 
   const job = await createDepositJob(
     kvClient,
-    {
-      ticker: normalizedTicker,
-      address: finalAddress,
-      txId: finalTxId,
-      expectedAmount: expectedAmount ?? '',
-      minConf: minConfirmations,
-      sessionUUID,
-      paymentId: finalPaymentId,
-      createdAt
+      {
+        ticker: normalizedTicker,
+        address: finalAddress,
+        txId: finalTxId,
+        expectedAmount: expectedAmount ?? '',
+        minConf: minConfirmations,
+        clientReference,
+        paymentId: finalPaymentId,
+        createdAt
       },
       {
         ttlSeconds: jobTtl,
@@ -529,7 +531,7 @@ app.post('/api/transaction/create', async (req, res) => {
         address: finalAddress,
         expectedAmount: expectedAmount ?? '',
         confirmations: 0,
-        sessionUUID,
+        clientReference,
         paymentId: finalPaymentId,
         createdAt
       },

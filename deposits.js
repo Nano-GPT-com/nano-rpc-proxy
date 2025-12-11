@@ -59,7 +59,7 @@ const createDepositJob = async (kv, data, { ttlSeconds, defaultMinConf, keyPrefi
     txId: id,
     expectedAmount: data.expectedAmount ?? '',
     minConf: data.minConf || defaultMinConf || '',
-    sessionUUID: data.sessionUUID || '',
+    clientReference: data.clientReference || data.sessionUUID || '',
     paymentId: data.paymentId || data.txId || '',
     createdAt: ensureTimestamp(data.createdAt)
   };
