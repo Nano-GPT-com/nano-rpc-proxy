@@ -533,6 +533,30 @@ const handleJob = async (kv, key, ticker, config) => {
 
   const ok = await sendWebhook(payload, config);
   if (ok) {
+    try {
+      await saveStatus(
+        kv,
+        ticker,
+        job.txId,
+        {
+          status: 'COMPLETED',
+          address: job.address,
+          expectedAmount: job.expectedAmount || '',
+          confirmations: asNumber(confirmed.confirmations, 0),
+          hash: confirmed.hash,
+          paymentId: job.paymentId || job.txId,
+          clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
+          paidAmount: payload.amount,
+          paidAmountAtomic: payload.amountAtomic,
+          consolidationTxId: payload.consolidationTxId,
+          consolidationError
+        },
+        { ttlSeconds: config.statusTtlSeconds, keyPrefix: config.keyPrefix }
+      );
+    } catch (err) {
+      watcherLogger.warn('Failed to save COMPLETED status', { key, ticker, error: err.message });
+    }
+
     watcherLogger.info('Webhook sent and job completed', {
       key,
       hash: confirmed.hash,
