@@ -427,7 +427,6 @@ app.post('/api/transaction/create', async (req, res) => {
       expectedAmount,
       // minConf is intentionally ignored; min confirmations are server-configured
       client_reference: clientReferenceInput,
-      sessionUUID, // legacy compatibility
       ttlSeconds
     } = req.body || {};
 
@@ -481,7 +480,7 @@ app.post('/api/transaction/create', async (req, res) => {
 
     const finalPaymentId = generatedPaymentId || paymentIdInput || '';
     const finalTxId = finalPaymentId; // use paymentId as canonical id
-    const clientReference = clientReferenceInput || sessionUUID || '';
+    const clientReference = clientReferenceInput || '';
 
     if (!finalAddress || !clientReference) {
       return res.status(400).json({ error: 'address and client_reference are required' });
