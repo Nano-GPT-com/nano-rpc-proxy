@@ -472,6 +472,20 @@ const handleJob = async (kv, key, ticker, config) => {
   if (consolidationAttempted) {
     watcherLogger.debug('Skipping consolidation (already attempted)', { key, ticker });
   } else {
+    const consolidationMinConf =
+      config.consolidation?.[ticker]?.minConfirmations ??
+      config.minConfirmations[ticker] ??
+      config.minConfirmations.zano ??
+      0;
+
+    if (asNumber(confirmed.confirmations, 0) < consolidationMinConf) {
+      watcherLogger.info('Consolidation deferred (not enough confirmations to spend)', {
+        key,
+        ticker,
+        confirmations: confirmed.confirmations,
+        required: consolidationMinConf
+      });
+    } else {
     try {
       consolidationResult = await consolidateDeposit(ticker, confirmed, config);
       if (consolidationResult?.tx_hash) {
@@ -494,6 +508,7 @@ const handleJob = async (kv, key, ticker, config) => {
         consolidationError
       });
     }
+  }
   }
 
   if (consolidationError) {

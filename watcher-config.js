@@ -49,12 +49,14 @@ const loadWatcherConfig = (overrides = {}) => {
       zano: {
         enabled: process.env.WATCHER_CONSOLIDATE_ZANO === 'true',
         address: process.env.WATCHER_CONSOLIDATE_ADDRESS_ZANO || '',
-        feeAtomic: parseNumber(process.env.WATCHER_CONSOLIDATE_FEE_ZANO, 10000000000)
+        feeAtomic: parseNumber(process.env.WATCHER_CONSOLIDATE_FEE_ZANO, 10000000000),
+        minConfirmations: parseNumber(process.env.WATCHER_CONSOLIDATE_MIN_CONF_ZANO, 10)
       },
       fusd: {
         enabled: process.env.WATCHER_CONSOLIDATE_FUSD === 'true',
         address: process.env.WATCHER_CONSOLIDATE_ADDRESS_FUSD || '',
-        feeAtomic: parseNumber(process.env.WATCHER_CONSOLIDATE_FEE_FUSD, 10000000000)
+        feeAtomic: parseNumber(process.env.WATCHER_CONSOLIDATE_FEE_FUSD, 10000000000),
+        minConfirmations: parseNumber(process.env.WATCHER_CONSOLIDATE_MIN_CONF_FUSD, 10)
       }
     }
   };
