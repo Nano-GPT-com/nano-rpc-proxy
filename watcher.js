@@ -482,6 +482,7 @@ const handleJob = async (kv, key, ticker, config) => {
     address: job.address,
     amount: formatAtomicAmount(amountAtomic, decimals) || '',
     amountAtomic: String(amountAtomic),
+    feeAtomic: null,
     expectedAmount: job.expectedAmount || undefined,
     confirmations: asNumber(confirmed.confirmations, 0),
     hash: confirmed.hash,
@@ -514,6 +515,12 @@ const handleJob = async (kv, key, ticker, config) => {
           ticker,
           consolidationTxId: consolidationResult.tx_hash
         });
+      }
+      if (rules.feeAtomic) {
+        payload.feeAtomic = rules.feeAtomic;
+        const netAtomic = asNumber(confirmed.amountAtomic, 0) - asNumber(rules.feeAtomic, 0);
+        payload.amountAtomic = String(netAtomic);
+        payload.amount = formatAtomicAmount(netAtomic, decimals) || '';
       }
       await kv.hset(key, {
         consolidationAttempted: true,
