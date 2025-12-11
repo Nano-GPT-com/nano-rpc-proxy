@@ -330,7 +330,41 @@ const handleJob = async (kv, key, ticker, config) => {
     .sort((a, b) => asNumber(b.confirmations, 0) - asNumber(a.confirmations, 0))[0];
 
   if (!confirmed || !confirmed.hash) {
-    watcherLogger.debug('No confirmed deposit meets threshold', { key, ticker, minConfirmations });
+    // If we saw deposits but none meet the threshold, publish a confirming status
+    const best = deposits.sort(
+      (a, b) => asNumber(b.confirmations, 0) - asNumber(a.confirmations, 0)
+    )[0];
+    if (best && best.hash) {
+      watcherLogger.info('Deposit seen but below confirmations threshold', {
+        key,
+        ticker,
+        hash: best.hash,
+        confirmations: best.confirmations,
+        minConfirmations
+      });
+      try {
+        await saveStatus(
+          kv,
+          ticker,
+          job.txId,
+          {
+            status: 'CONFIRMING',
+            address: job.address,
+            expectedAmount: job.expectedAmount || '',
+            confirmations: asNumber(best.confirmations, 0),
+            hash: best.hash,
+            paymentId: job.paymentId || job.txId,
+            sessionUUID: job.sessionUUID || job.sessionId || undefined,
+            createdAt: job.createdAt || undefined
+          },
+          { ttlSeconds: config.statusTtlSeconds, keyPrefix: config.keyPrefix }
+        );
+      } catch (err) {
+        watcherLogger.warn('Failed to write CONFIRMING status', { key, ticker, error: err.message });
+      }
+    } else {
+      watcherLogger.debug('No confirmed deposit meets threshold', { key, ticker, minConfirmations });
+    }
     return;
   }
 
