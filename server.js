@@ -454,145 +454,143 @@ app.get('/api/transaction/status/:ticker/:paymentId', statusRateLimit, async (re
   }
 });
 
-app.post('/api/transaction/create', async (req, res) => {
-  try {
-    if (!ensureKvClient(res)) return;
+	app.post('/api/transaction/create', async (req, res) => {
+	  try {
+	    if (!ensureKvClient(res)) return;
 
-    const apiKey = (req.headers['x-api-key'] || '').trim();
-    if (!ZANO_API_KEY || apiKey !== ZANO_API_KEY) {
-      return res.status(401).json({ error: 'Invalid or missing Zano API key' });
-    }
+	    const apiKey = (req.headers['x-api-key'] || '').trim();
+	    if (!ZANO_API_KEY || apiKey !== ZANO_API_KEY) {
+	      return res.status(401).json({ error: 'Invalid or missing Zano API key' });
+	    }
 
-    const {
-      ticker,
-      address,
-      payment_id: paymentIdInput,
-      expectedAmount,
-      // minConf is intentionally ignored; min confirmations are server-configured
-      client_reference: clientReferenceInput,
-      ttlSeconds
-    } = req.body || {};
+	    const body = req.body || {};
+	    if (typeof body !== 'object' || Array.isArray(body)) {
+	      return res.status(400).json({ error: 'Request body must be an object' });
+	    }
 
-    const normalizedTicker = normalizeTicker(ticker);
-    if (!normalizedTicker) {
-      return res.status(400).json({ error: 'ticker is required' });
-    }
+	    const allowedFields = new Set(['ticker', 'client_reference']);
+	    const extraFields = Object.keys(body).filter((key) => !allowedFields.has(key));
+	    if (extraFields.length > 0) {
+	      return res.status(400).json({
+	        error: 'Only ticker and client_reference are allowed',
+	        extraFields
+	      });
+	    }
 
-    if (!isTickerEnabled(normalizedTicker)) {
-      return res.status(400).json({ error: `Ticker ${normalizedTicker} is not enabled for the watcher` });
-    }
+	    const { ticker, client_reference: clientReferenceInput } = body;
 
-    let finalAddress = address && address.trim();
-    let generatedPaymentId = null;
+	    const normalizedTicker = normalizeTicker(ticker);
+	    if (!normalizedTicker) {
+	      return res.status(400).json({ error: 'ticker is required' });
+	    }
 
-    // Convenience: if no address provided for Zano, auto-generate an integrated address
-    if (!finalAddress && normalizedTicker === 'zano') {
-      try {
-        const payload = {
-          jsonrpc: '2.0',
-          id: `make-int-${Date.now()}`,
-          method: 'make_integrated_address',
-          params: {}
-        };
-        if (paymentIdInput) {
-          payload.params.payment_id = paymentIdInput;
-        }
-        const headers = { 'Content-Type': 'application/json' };
-        if (ZANO_API_KEY) headers['X-API-Key'] = ZANO_API_KEY;
+	    if (!isTickerEnabled(normalizedTicker)) {
+	      return res.status(400).json({ error: `Ticker ${normalizedTicker} is not enabled for the watcher` });
+	    }
 
-        const rpcResp = await axios.post(ZANO_RPC_URL, payload, {
-          headers,
-          timeout: 10000,
-          validateStatus: () => true
-        });
+	    let finalAddress = '';
+	    let finalPaymentId = '';
+	    try {
+	      const payload = {
+	        jsonrpc: '2.0',
+	        id: `make-int-${Date.now()}`,
+	        method: 'make_integrated_address',
+	        params: {}
+	      };
+	      const headers = { 'Content-Type': 'application/json' };
+	      if (ZANO_API_KEY) headers['X-API-Key'] = ZANO_API_KEY;
 
-        if (rpcResp.status >= 400 || rpcResp.data?.error) {
-          return res.status(502).json({
-            error: 'Failed to generate integrated address',
-            details: rpcResp.data?.error?.message || rpcResp.status
-          });
-        }
+	      const rpcResp = await axios.post(ZANO_RPC_URL, payload, {
+	        headers,
+	        timeout: 10000,
+	        validateStatus: () => true
+	      });
 
-        finalAddress = rpcResp.data?.result?.integrated_address || '';
-        generatedPaymentId = rpcResp.data?.result?.payment_id || null;
-      } catch (err) {
-        console.error('make_integrated_address failed:', err.message);
-        return res.status(502).json({ error: 'Failed to generate integrated address' });
-      }
-    }
+	      if (rpcResp.status >= 400 || rpcResp.data?.error) {
+	        return res.status(502).json({
+	          error: 'Failed to generate integrated address',
+	          details: rpcResp.data?.error?.message || rpcResp.status
+	        });
+	      }
 
-    const finalPaymentId = generatedPaymentId || paymentIdInput || '';
-    const finalTxId = finalPaymentId; // use paymentId as canonical id
-    const clientReference = clientReferenceInput || '';
+	      finalAddress = rpcResp.data?.result?.integrated_address || '';
+	      finalPaymentId = rpcResp.data?.result?.payment_id || '';
+	    } catch (err) {
+	      console.error('make_integrated_address failed:', err.message);
+	      return res.status(502).json({ error: 'Failed to generate integrated address' });
+	    }
 
-    if (!clientReference) {
-      return res.status(400).json({ error: 'client_reference is required' });
-    }
+	    const finalTxId = finalPaymentId; // use paymentId as canonical id
+	    const clientReference = String(clientReferenceInput || '').trim();
 
-    if (!finalAddress) {
-      return res.status(400).json({ error: 'address is required (or allow auto-generation for zano)' });
-    }
+	    if (!clientReference) {
+	      return res.status(400).json({ error: 'client_reference is required' });
+	    }
 
-    if (!finalPaymentId) {
-      return res.status(400).json({ error: 'payment_id is required (or allow us to generate one)' });
-    }
+	    if (!finalPaymentId) {
+	      return res.status(502).json({ error: 'Failed to generate payment_id' });
+	    }
 
-    const createdAt = new Date().toISOString();
-    const jobTtl = parsePositiveInt(ttlSeconds, watcherConfig.jobTtlSeconds);
-    const minConfirmations = getMinConfirmations(normalizedTicker);
+	    if (!finalAddress) {
+	      return res.status(502).json({ error: 'Failed to generate address' });
+	    }
 
-    const job = await createDepositJob(
-      kvClient,
-      {
-        ticker: normalizedTicker,
-        address: finalAddress,
-        txId: finalTxId,
-        expectedAmount: expectedAmount ?? '',
-        minConf: minConfirmations,
-        clientReference,
-        paymentId: finalPaymentId,
-        createdAt
-      },
+	    const createdAt = new Date().toISOString();
+	    const jobTtl = watcherConfig.jobTtlSeconds;
+	    const minConfirmations = getMinConfirmations(normalizedTicker);
+
+	    const job = await createDepositJob(
+	      kvClient,
+	      {
+	        ticker: normalizedTicker,
+	        address: finalAddress,
+	        txId: finalTxId,
+	        minConf: minConfirmations,
+	        clientReference,
+	        paymentId: finalPaymentId,
+	        createdAt
+	      },
       {
         ttlSeconds: jobTtl,
         defaultMinConf: minConfirmations,
         keyPrefix: watcherConfig.keyPrefix
-      }
-    );
+	      }
+	    );
 
-  console.log('Deposit job created', {
-    key: job.key,
-    ticker: normalizedTicker,
-    txId: finalTxId,
-    paymentId: finalPaymentId,
-      keyPrefix: watcherConfig.keyPrefix
-    });
+	    console.log('Deposit job created', {
+	      key: job.key,
+	      ticker: normalizedTicker,
+	      txId: finalTxId,
+	      paymentId: finalPaymentId,
+	      keyPrefix: watcherConfig.keyPrefix
+	    });
 
-    const status = await saveStatus(
-      kvClient,
-      normalizedTicker,
+	    const status = await saveStatus(
+	      kvClient,
+	      normalizedTicker,
       finalTxId,
-      {
-        status: 'PENDING',
-        address: finalAddress,
-        confirmations: 0,
-        clientReference,
-        paymentId: finalPaymentId,
-        createdAt
-      },
-      { ttlSeconds: watcherConfig.statusTtlSeconds, keyPrefix: watcherConfig.keyPrefix }
-    );
+	      {
+	        status: 'PENDING',
+	        address: finalAddress,
+	        confirmations: 0,
+	        requiredConfirmations: minConfirmations,
+	        clientReference,
+	        paymentId: finalPaymentId,
+	        createdAt
+	      },
+	      { ttlSeconds: watcherConfig.statusTtlSeconds, keyPrefix: watcherConfig.keyPrefix }
+	    );
 
-    console.log('Status record saved', {
-      ticker: normalizedTicker,
-      txId: finalTxId,
-      paymentId: finalPaymentId,
-      keyPrefix: watcherConfig.keyPrefix
-    });
+	    console.log('Status record saved', {
+	      ticker: normalizedTicker,
+	      txId: finalTxId,
+	      paymentId: finalPaymentId,
+	      keyPrefix: watcherConfig.keyPrefix
+	    });
 
-    res.json({
-      ok: true,
-      jobKey: job.key,
+	    res.json({
+	      ok: true,
+	      jobKey: job.key,
       ttlSeconds: jobTtl,
       status,
       address: finalAddress,
@@ -634,20 +632,33 @@ app.post('/api/transaction/callback/:ticker', async (req, res) => {
       return res.status(400).json({ error: 'paymentId, address, and hash are required' });
     }
 
-    const decimals = getTickerDecimals(ticker);
-    const paidAmount = amount || formatAtomicAmount(amountAtomic, decimals) || '';
-    const payload = await saveStatus(
-      kvClient,
-      ticker,
-      paymentId,
-      {
-        status: 'COMPLETED',
-        address,
-        expectedAmount: expectedAmount ?? '',
-        confirmations: parsePositiveInt(confirmations, 0),
-        hash,
-        paidAmount,
-        paidAmountAtomic: amountAtomic ?? '',
+	    const decimals = getTickerDecimals(ticker);
+	    const paidAmount = amount || formatAtomicAmount(amountAtomic, decimals) || '';
+	    const defaultRequiredConfirmations = getMinConfirmations(ticker);
+	    let requiredConfirmations = defaultRequiredConfirmations;
+	    try {
+	      const existing = await readStatus(kvClient, ticker, paymentId, watcherConfig.keyPrefix);
+	      if (existing && existing.requiredConfirmations !== undefined) {
+	        requiredConfirmations = parsePositiveInt(existing.requiredConfirmations, defaultRequiredConfirmations);
+	      } else if (existing && existing.minConfirmations !== undefined) {
+	        requiredConfirmations = parsePositiveInt(existing.minConfirmations, defaultRequiredConfirmations);
+	      }
+	    } catch (_) {
+	      // ignore read errors; fall back to defaultRequiredConfirmations
+	    }
+	    const payload = await saveStatus(
+	      kvClient,
+	      ticker,
+	      paymentId,
+	      {
+	        status: 'COMPLETED',
+	        address,
+	        expectedAmount: expectedAmount ?? '',
+	        confirmations: parsePositiveInt(confirmations, 0),
+	        requiredConfirmations,
+	        hash,
+	        paidAmount,
+	        paidAmountAtomic: amountAtomic ?? '',
         sessionUUID: sessionUUID || '',
         createdAt: createdAt || new Date().toISOString()
       },

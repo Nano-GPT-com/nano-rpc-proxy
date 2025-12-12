@@ -8,7 +8,8 @@ const {
   isSeen,
   readStatus,
   saveStatus,
-  formatAtomicAmount
+  formatAtomicAmount,
+  toBigInt
 } = require('./deposits');
 const { normalizeTicker } = require('./watcher-config');
 
@@ -48,6 +49,21 @@ let watcherLogger = createLogger(process.env.WATCHER_LOG_LEVEL || 'info', proces
 const asNumber = (value, fallback = 0) => {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
+};
+
+const computeDynamicMinConfirmations = (amountAtomic, decimals) => {
+  const atomic = toBigInt(amountAtomic);
+  if (atomic === null) return null;
+
+  const safeDecimals =
+    Number.isFinite(decimals) && decimals >= 0 ? decimals : 12;
+  const scale = BigInt(10) ** BigInt(safeDecimals);
+  const threshold50 = BigInt(50) * scale;
+  const threshold100 = BigInt(100) * scale;
+
+  if (atomic < threshold50) return 1;
+  if (atomic < threshold100) return 3;
+  return 6;
 };
 
 const normalizeHash = (value) => (value || '').trim();
@@ -360,7 +376,8 @@ const handleJob = async (kv, key, ticker, config) => {
     return;
   }
 
-  const minConfirmations = asNumber(job.minConf, config.minConfirmations[ticker] || 0);
+  let minConfirmations = asNumber(job.minConf, config.minConfirmations[ticker] || 0);
+  const decimals = asNumber(config.decimals?.[ticker], config.decimals?.zano ?? 12);
 
   // Backfill paymentId if it wasn't stored in the hash (older jobs)
   let paymentId = job.paymentId;
@@ -405,15 +422,61 @@ const handleJob = async (kv, key, ticker, config) => {
     return;
   }
 
+  const best = deposits
+    .slice()
+    .sort((a, b) => asNumber(b.confirmations, 0) - asNumber(a.confirmations, 0))[0];
+
+  const dynamicMinConfirmations =
+    best && best.amountAtomic !== undefined
+      ? computeDynamicMinConfirmations(best.amountAtomic, decimals)
+      : null;
+
+  if (dynamicMinConfirmations !== null) {
+    let existingStatus = null;
+    try {
+      existingStatus = await readStatus(kv, ticker, job.txId, config.keyPrefix);
+    } catch (err) {
+      watcherLogger.debug('Failed to read existing status for dynamic minConf', {
+        key,
+        ticker,
+        error: err.message
+      });
+    }
+
+    const statusValue = String(existingStatus?.status || 'PENDING').toUpperCase();
+    const dynamicAlreadyApplied =
+      String(job.dynamicMinConfApplied || '').toLowerCase() === 'true';
+    if (!dynamicAlreadyApplied && statusValue !== 'COMPLETED') {
+      if (dynamicMinConfirmations !== minConfirmations) {
+        minConfirmations = dynamicMinConfirmations;
+        try {
+          await kv.hset(key, {
+            minConf: String(dynamicMinConfirmations),
+            dynamicMinConfApplied: true
+          });
+        } catch (err) {
+          watcherLogger.warn('Failed to persist dynamic min confirmations', {
+            key,
+            ticker,
+            error: err.message
+          });
+        }
+        watcherLogger.info('Dynamic confirmations applied', {
+          key,
+          ticker,
+          amountAtomic: best.amountAtomic,
+          dynamicMinConfirmations
+        });
+      }
+    }
+  }
+
   const confirmed = deposits
     .filter((d) => asNumber(d.confirmations, 0) >= minConfirmations)
     .sort((a, b) => asNumber(b.confirmations, 0) - asNumber(a.confirmations, 0))[0];
 
   if (!confirmed || !confirmed.hash) {
     // If we saw deposits but none meet the threshold, publish a confirming status
-    const best = deposits.sort(
-      (a, b) => asNumber(b.confirmations, 0) - asNumber(a.confirmations, 0)
-    )[0];
     if (best && best.hash) {
       watcherLogger.info('Deposit seen but below confirmations threshold', {
         key,
@@ -434,7 +497,9 @@ const handleJob = async (kv, key, ticker, config) => {
             hash: best.hash,
             paymentId: job.paymentId || job.txId,
             clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
-            createdAt: job.createdAt || undefined
+            createdAt: job.createdAt || undefined,
+            minConfirmations,
+            requiredConfirmations: minConfirmations
           },
           { ttlSeconds: config.statusTtlSeconds, keyPrefix: config.keyPrefix }
         );
@@ -475,8 +540,7 @@ const handleJob = async (kv, key, ticker, config) => {
     return;
   }
 
- const decimals = config.decimals[ticker] || 12;
- const amountAtomic = confirmed.amountAtomic ?? confirmed.amount ?? '';
+  const amountAtomic = confirmed.amountAtomic ?? confirmed.amount ?? '';
   const amountAtomicNum = asNumber(amountAtomic, 0);
   const payload = {
     paymentId: job.txId,
@@ -555,15 +619,16 @@ const handleJob = async (kv, key, ticker, config) => {
           kv,
           ticker,
           job.txId,
-         {
-            status: 'COMPLETED',
-            address: job.address,
-            confirmations: asNumber(confirmed.confirmations, 0),
-            hash: confirmed.hash,
-            paymentId: job.paymentId || job.txId,
-            clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
-            paidAmount: formatAtomicAmount(confirmed.amountAtomic ?? confirmed.amount ?? '', decimals) || '',
-            paidAmountAtomic: String(confirmed.amountAtomic ?? confirmed.amount ?? ''),
+	         {
+	            status: 'COMPLETED',
+	            address: job.address,
+	            confirmations: asNumber(confirmed.confirmations, 0),
+	            requiredConfirmations: minConfirmations,
+	            hash: confirmed.hash,
+	            paymentId: job.paymentId || job.txId,
+	            clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
+	            paidAmount: formatAtomicAmount(confirmed.amountAtomic ?? confirmed.amount ?? '', decimals) || '',
+	            paidAmountAtomic: String(confirmed.amountAtomic ?? confirmed.amount ?? ''),
             effectiveAmount: payload.effectiveAmount || payload.amount,
             effectiveAmountAtomic: payload.effectiveAmountAtomic || payload.amountAtomic,
             feeAtomic: payload.feeAtomic || undefined
@@ -606,13 +671,14 @@ const handleJob = async (kv, key, ticker, config) => {
         ticker,
         job.txId,
         {
-          status: 'COMPLETED',
-          address: job.address,
-          confirmations: asNumber(confirmed.confirmations, 0),
-          hash: confirmed.hash,
-          paymentId: job.paymentId || job.txId,
-          clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
-          paidAmount: formatAtomicAmount(confirmed.amountAtomic ?? confirmed.amount ?? '', decimals) || '',
+	          status: 'COMPLETED',
+	          address: job.address,
+	          confirmations: asNumber(confirmed.confirmations, 0),
+	          requiredConfirmations: minConfirmations,
+	          hash: confirmed.hash,
+	          paymentId: job.paymentId || job.txId,
+	          clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
+	          paidAmount: formatAtomicAmount(confirmed.amountAtomic ?? confirmed.amount ?? '', decimals) || '',
           paidAmountAtomic: String(confirmed.amountAtomic ?? confirmed.amount ?? ''),
           effectiveAmount: payload.effectiveAmount || payload.amount,
           effectiveAmountAtomic: payload.effectiveAmountAtomic || payload.amountAtomic,
