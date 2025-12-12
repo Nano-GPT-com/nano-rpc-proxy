@@ -79,6 +79,9 @@ Environment variables:
 - `ZANO_API_KEY`: API key for `/zano` (no default; always required)
 - `ZANO_ALLOWED_METHODS`: Comma-separated allowlist for `/zano` (defaults to `make_integrated_address,get_balance,get_payments`)
 - `ZANO_WALLET_FILE`, `ZANO_WALLET_PASSWORD`, `ZANO_WALLET_RPC_PORT`: wallet RPC settings (simplewallet in RPC mode, default port 11212); point `ZANO_RPC_URL` to this wallet RPC for address generation/balance
+- `PUBLIC_RATE_LIMIT_WINDOW_MS`, `PUBLIC_RATE_LIMIT_MAX`: Public rate limit for unauthenticated Nano RPC and other public routes (defaults 15min/100).
+- `STATUS_RATE_LIMIT_WINDOW_MS`, `STATUS_RATE_LIMIT_MAX`: Separate public rate limit for `GET /api/transaction/status/...` polling (defaults 5min/600).
+- `STATUS_CACHE_TTL_MS`: In-memory cache TTL for status lookups to reduce KV reads (default `min(5000, WATCHER_INTERVAL_MS)`).
 
 > Keep secrets out of git: set `API_KEY` and `ZANO_API_KEY` in `.env` (gitignored) or your deployment environment. Compose files only reference these variables and do not embed key values.
 

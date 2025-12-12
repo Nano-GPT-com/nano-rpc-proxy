@@ -178,18 +178,43 @@ const ALLOWED_ACTIONS = [
 ];
 
 // Rate limiting configuration
-const createRateLimit = (windowMs, max, message) => rateLimit({
-  windowMs,
-  max,
-  message: { error: message },
-  standardHeaders: true,
-  legacyHeaders: false
-});
+const createRateLimit = (windowMs, max, message) =>
+  rateLimit({
+    windowMs,
+    max,
+    message: { error: message },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => getClientIp(req)
+  });
+
+const PUBLIC_RATE_LIMIT_WINDOW_MS = parsePositiveInt(
+  process.env.PUBLIC_RATE_LIMIT_WINDOW_MS,
+  15 * 60 * 1000
+);
+const PUBLIC_RATE_LIMIT_MAX = parsePositiveInt(process.env.PUBLIC_RATE_LIMIT_MAX, 100);
+const STATUS_RATE_LIMIT_WINDOW_MS = parsePositiveInt(
+  process.env.STATUS_RATE_LIMIT_WINDOW_MS,
+  5 * 60 * 1000
+);
+const STATUS_RATE_LIMIT_MAX = parsePositiveInt(process.env.STATUS_RATE_LIMIT_MAX, 600);
+const STATUS_CACHE_TTL_MS = parsePositiveInt(
+  process.env.STATUS_CACHE_TTL_MS,
+  Math.min(5000, watcherConfig.intervalMs)
+);
+
+const statusCache = new Map();
 
 // Rate limiting for public access only
 const publicRateLimit = createRateLimit(
-  15 * 60 * 1000, // 15 minutes
-  100,            // 100 requests per 15 minutes for public access
+  PUBLIC_RATE_LIMIT_WINDOW_MS,
+  PUBLIC_RATE_LIMIT_MAX,
+  'Too many requests from this IP, please try again later'
+);
+
+const statusRateLimit = createRateLimit(
+  STATUS_RATE_LIMIT_WINDOW_MS,
+  STATUS_RATE_LIMIT_MAX,
   'Too many requests from this IP, please try again later'
 );
 
@@ -200,7 +225,7 @@ app.use(morgan('combined'));
 
 // Apply rate limiting only to public (non-API key) requests
 app.use('/', (req, res, next) => {
-  if (req.path.startsWith('/zano')) {
+  if (req.path.startsWith('/zano') || req.path.startsWith('/api/transaction/status')) {
     return next();
   }
 
@@ -350,7 +375,7 @@ app.post('/zano', async (req, res) => {
 });
 
 // Transaction status (public) and webhook/capture endpoints (protected)
-app.get('/api/transaction/status/:ticker/:paymentId', async (req, res) => {
+app.get('/api/transaction/status/:ticker/:paymentId', statusRateLimit, async (req, res) => {
   try {
     if (!ensureKvClient(res)) return;
 
@@ -372,6 +397,17 @@ app.get('/api/transaction/status/:ticker/:paymentId', async (req, res) => {
     }
 
     const statusKey = `${watcherConfig.keyPrefix}:transaction:status:${ticker}:${paymentId}`;
+
+    const cached = statusCache.get(statusKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      if (watcherConfig.logLevel === 'debug') {
+        console.log('Status lookup cache hit', { ticker, paymentId });
+      }
+      return res.json(cached.value);
+    }
+    if (cached) {
+      statusCache.delete(statusKey);
+    }
     let rawStatus = null;
     try {
       rawStatus = await kvClient.get(statusKey);
@@ -393,6 +429,13 @@ app.get('/api/transaction/status/:ticker/:paymentId', async (req, res) => {
         });
       }
       return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    if (STATUS_CACHE_TTL_MS > 0) {
+      statusCache.set(statusKey, {
+        value: status,
+        expiresAt: Date.now() + STATUS_CACHE_TTL_MS
+      });
     }
 
     if (watcherConfig.logLevel !== 'error') {
