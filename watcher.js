@@ -566,6 +566,7 @@ const handleJob = async (kv, key, ticker, config) => {
   const webhookSent = String(job.webhookSent || '').toLowerCase() === 'true';
   const webhookAttempts = asNumber(job.webhookAttempts, 0);
   const webhookNextAttemptAt = asNumber(job.webhookNextAttemptAt, 0);
+  const webhookFirstAttemptAt = asNumber(job.webhookFirstAttemptAt, 0);
 
   if (await isSeen(kv, confirmed.hash, config.keyPrefix)) {
     watcherLogger.info('Deposit already seen, deleting job', {
@@ -674,6 +675,49 @@ const handleJob = async (kv, key, ticker, config) => {
 
     const now = Date.now();
     const maxAttempts = asNumber(config.webhookMaxAttempts, 0);
+    const maxRetryWindowMs = asNumber(config.webhookMaxRetryWindowMs, 2 * 60 * 60 * 1000);
+
+    if (maxRetryWindowMs > 0 && webhookFirstAttemptAt && now - webhookFirstAttemptAt > maxRetryWindowMs) {
+      watcherLogger.warn('Webhook retry window exceeded; failing job', {
+        key,
+        ticker,
+        paymentId: payload.paymentId,
+        webhookAttempts,
+        webhookFirstAttemptAt,
+        maxRetryWindowMs
+      });
+
+      const lastError = truncateText(job.webhookLastError || 'webhook retry window exceeded', 500);
+      try {
+        await saveStatus(
+          kv,
+          ticker,
+          job.txId,
+          {
+            status: 'FAILED',
+            address: job.address,
+            confirmations: asNumber(confirmed.confirmations, 0),
+            requiredConfirmations: minConfirmations,
+            hash: confirmed.hash,
+            paymentId: job.paymentId || job.txId,
+            clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
+            createdAt: job.createdAt || undefined,
+            webhookError: lastError
+          },
+          { ttlSeconds: config.statusTtlSeconds, keyPrefix: config.keyPrefix }
+        );
+      } catch (err) {
+        watcherLogger.warn('Failed to save FAILED status after retry window exceeded', {
+          key,
+          ticker,
+          error: err.message
+        });
+      }
+
+      await markSeen(kv, confirmed.hash, config.seenTtlSeconds, config.keyPrefix);
+      await deleteDepositJob(kv, key);
+      return;
+    }
     if (maxAttempts > 0 && webhookAttempts >= maxAttempts) {
       webhookOk = false;
       watcherLogger.warn('Webhook max attempts reached; skipping webhook', {
@@ -748,9 +792,12 @@ const handleJob = async (kv, key, ticker, config) => {
         const nextAttemptAt = now + delayMs;
         const lastError = truncateText(payload.__webhookError || 'webhook attempt failed', 500);
 
+        const firstAttemptAt = webhookFirstAttemptAt || now;
+
         try {
           await kv.hset(key, {
             webhookAttempts: String(attempts),
+            webhookFirstAttemptAt: String(firstAttemptAt),
             webhookLastAttemptAt: String(now),
             webhookNextAttemptAt: String(nextAttemptAt),
             webhookLastError: lastError

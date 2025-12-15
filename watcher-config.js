@@ -31,6 +31,7 @@ const loadWatcherConfig = (overrides = {}) => {
     webhookBackoffMaxMs: parseNumber(process.env.WATCHER_WEBHOOK_BACKOFF_MAX_MS, 20 * 60 * 1000),
     webhookBackoffJitter: String(process.env.WATCHER_WEBHOOK_BACKOFF_JITTER || 'true').toLowerCase() === 'true',
     webhookMaxAttempts: parseNumber(process.env.WATCHER_WEBHOOK_MAX_ATTEMPTS, 0),
+    webhookMaxRetryWindowMs: parseNumber(process.env.WATCHER_WEBHOOK_MAX_RETRY_WINDOW_MS, 2 * 60 * 60 * 1000),
     seenTtlSeconds: parseNumber(process.env.WATCHER_SEEN_TTL_SECONDS, 4 * 60 * 60),
     jobTtlSeconds: parseNumber(process.env.WATCHER_JOB_TTL_SECONDS, 24 * 60 * 60),
     statusTtlSeconds: parseNumber(process.env.WATCHER_STATUS_TTL_SECONDS, 7 * 24 * 60 * 60),
