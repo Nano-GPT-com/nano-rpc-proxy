@@ -51,6 +51,27 @@ const asNumber = (value, fallback = 0) => {
   return Number.isFinite(num) ? num : fallback;
 };
 
+const truncateText = (value, maxLen = 500) => {
+  const text = value === undefined || value === null ? '' : String(value);
+  if (text.length <= maxLen) return text;
+  return text.slice(0, maxLen);
+};
+
+const computeWebhookBackoffDelayMs = (attempts, config) => {
+  const baseMs = asNumber(config.webhookBackoffBaseMs, 1000);
+  const factor = asNumber(config.webhookBackoffFactor, 2);
+  const maxMs = asNumber(config.webhookBackoffMaxMs, 5 * 60 * 1000);
+
+  let delay = baseMs * Math.pow(factor, Math.max(0, attempts));
+  delay = Math.min(delay, maxMs);
+
+  if (config.webhookBackoffJitter) {
+    delay = Math.floor(Math.random() * delay);
+  }
+
+  return Math.max(0, Math.floor(delay));
+};
+
 const computeDynamicMinConfirmations = (amountAtomic, decimals) => {
   const atomic = toBigInt(amountAtomic);
   if (atomic === null) return null;
@@ -351,22 +372,36 @@ const fetchDeposits = async (address, ticker, config, paymentId) => {
 };
 
 const sendWebhook = async (payload, config) => {
-  const response = await axios.post(config.webhookUrl, payload, {
-    timeout: config.webhookTimeoutMs,
-    validateStatus: () => true,
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Zano-Secret': config.webhookSecret
+  try {
+    const response = await axios.post(config.webhookUrl, payload, {
+      timeout: config.webhookTimeoutMs,
+      validateStatus: () => true,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Zano-Secret': config.webhookSecret
+      }
+    });
+
+    if (response.status >= 200 && response.status < 300) {
+      watcherLogger.debug('Webhook delivered', { status: response.status, paymentId: payload.paymentId });
+      return { ok: true, error: '' };
     }
-  });
 
-  if (response.status >= 200 && response.status < 300) {
-  watcherLogger.debug('Webhook delivered', { status: response.status, paymentId: payload.paymentId });
-    return true;
+    const errorText = truncateText(
+      `HTTP ${response.status}: ${
+        typeof response.data === 'string' ? response.data : JSON.stringify(response.data || {})
+      }`,
+      500
+    );
+    watcherLogger.error('Webhook failed', response.status, response.data);
+    return { ok: false, error: errorText };
+  } catch (error) {
+    watcherLogger.warn('Webhook request error', {
+      paymentId: payload?.paymentId,
+      error: error.message
+    });
+    return { ok: false, error: truncateText(error.message || 'request error', 500) };
   }
-
-  watcherLogger.error('Webhook failed', response.status, response.data);
-  return false;
 };
 
 const handleJob = async (kv, key, ticker, config) => {
@@ -529,6 +564,8 @@ const handleJob = async (kv, key, ticker, config) => {
     0;
   const canConsolidateNow = consolidationEnabled && asNumber(confirmed.confirmations, 0) >= consolidationMinConf;
   const webhookSent = String(job.webhookSent || '').toLowerCase() === 'true';
+  const webhookAttempts = asNumber(job.webhookAttempts, 0);
+  const webhookNextAttemptAt = asNumber(job.webhookNextAttemptAt, 0);
 
   if (await isSeen(kv, confirmed.hash, config.keyPrefix)) {
     watcherLogger.info('Deposit already seen, deleting job', {
@@ -612,33 +649,89 @@ const handleJob = async (kv, key, ticker, config) => {
 
   let webhookOk = true;
   if (!webhookSent) {
-    webhookOk = await sendWebhook(payload, config);
+    // We've reached the confirmation threshold, but completion requires a successful webhook.
+    // Keep status fresh (especially when requiredConfirmations is low) so clients can see up-to-date confirmations.
+	    try {
+	      await saveStatus(
+	        kv,
+	        ticker,
+	        job.txId,
+	        {
+	          status: 'CONFIRMING',
+	          address: job.address,
+	          confirmations: asNumber(confirmed.confirmations, 0),
+	          requiredConfirmations: minConfirmations,
+	          hash: confirmed.hash,
+	          paymentId: job.paymentId || job.txId,
+	          clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
+	          createdAt: job.createdAt || undefined
+	        },
+	        { ttlSeconds: config.statusTtlSeconds, keyPrefix: config.keyPrefix }
+	      );
+	    } catch (err) {
+	      watcherLogger.warn('Failed to refresh CONFIRMING status before webhook', { key, ticker, error: err.message });
+    }
+
+    const now = Date.now();
+    const maxAttempts = asNumber(config.webhookMaxAttempts, 0);
+    if (maxAttempts > 0 && webhookAttempts >= maxAttempts) {
+      webhookOk = false;
+      watcherLogger.warn('Webhook max attempts reached; skipping webhook', {
+        key,
+        ticker,
+        paymentId: payload.paymentId,
+        webhookAttempts,
+        webhookNextAttemptAt
+      });
+      return;
+    } else if (webhookNextAttemptAt && now < webhookNextAttemptAt) {
+      webhookOk = false;
+      watcherLogger.debug('Webhook in backoff window, skipping', {
+        key,
+        ticker,
+        paymentId: payload.paymentId,
+        webhookAttempts,
+        webhookNextAttemptAt
+      });
+      return;
+    } else {
+      const webhookResult = await sendWebhook(payload, config);
+      webhookOk = Boolean(webhookResult?.ok);
+      payload.__webhookError = webhookResult?.error || '';
+    }
     if (webhookOk) {
       try {
         await saveStatus(
           kv,
           ticker,
           job.txId,
-	         {
-	            status: 'COMPLETED',
-	            address: job.address,
-	            confirmations: asNumber(confirmed.confirmations, 0),
-	            requiredConfirmations: minConfirmations,
-	            hash: confirmed.hash,
-	            paymentId: job.paymentId || job.txId,
-	            clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
-	            paidAmount: formatAtomicAmount(confirmed.amountAtomic ?? confirmed.amount ?? '', decimals) || '',
-	            paidAmountAtomic: String(confirmed.amountAtomic ?? confirmed.amount ?? ''),
+          {
+            status: 'COMPLETED',
+            address: job.address,
+            confirmations: asNumber(confirmed.confirmations, 0),
+            requiredConfirmations: minConfirmations,
+            hash: confirmed.hash,
+            paymentId: job.paymentId || job.txId,
+            clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
+            paidAmount: formatAtomicAmount(confirmed.amountAtomic ?? confirmed.amount ?? '', decimals) || '',
+            paidAmountAtomic: String(confirmed.amountAtomic ?? confirmed.amount ?? ''),
             effectiveAmount: payload.effectiveAmount || payload.amount,
             effectiveAmountAtomic: payload.effectiveAmountAtomic || payload.amountAtomic,
             feeAtomic: payload.feeAtomic || undefined
-         },
+          },
           { ttlSeconds: config.statusTtlSeconds, keyPrefix: config.keyPrefix }
         );
       } catch (err) {
         watcherLogger.warn('Failed to save COMPLETED status', { key, ticker, error: err.message });
       }
-      await kv.hset(key, { webhookSent: true });
+
+      await kv.hset(key, {
+        webhookSent: true,
+        webhookAttempts: '0',
+        webhookNextAttemptAt: '',
+        webhookLastAttemptAt: '',
+        webhookLastError: ''
+      });
       watcherLogger.info('Webhook sent and marked as completed', {
         key,
         hash: confirmed.hash,
@@ -646,11 +739,64 @@ const handleJob = async (kv, key, ticker, config) => {
         paymentId: payload.paymentId
       });
     } else {
+      const attemptedNow = !webhookNextAttemptAt || now >= webhookNextAttemptAt;
+      const shouldRecordFailure = attemptedNow && !(maxAttempts > 0 && webhookAttempts >= maxAttempts);
+
+      if (shouldRecordFailure) {
+        const attempts = webhookAttempts + 1;
+        const delayMs = computeWebhookBackoffDelayMs(attempts, config);
+        const nextAttemptAt = now + delayMs;
+        const lastError = truncateText(payload.__webhookError || 'webhook attempt failed', 500);
+
+        try {
+          await kv.hset(key, {
+            webhookAttempts: String(attempts),
+            webhookLastAttemptAt: String(now),
+            webhookNextAttemptAt: String(nextAttemptAt),
+            webhookLastError: lastError
+          });
+        } catch (err) {
+          watcherLogger.warn('Failed to persist webhook retry state', { key, ticker, error: err.message });
+        }
+
+        watcherLogger.warn('Webhook attempt failed; backing off', {
+          key,
+          ticker,
+          paymentId: payload.paymentId,
+          webhookAttempts: attempts,
+          nextAttemptAt,
+          delayMs
+        });
+      }
+
+      // Webhook failed; keep status in a non-completed state while we retry.
+	      try {
+	        await saveStatus(
+	          kv,
+	          ticker,
+	          job.txId,
+	          {
+	            status: 'CONFIRMING',
+	            address: job.address,
+	            confirmations: asNumber(confirmed.confirmations, 0),
+	            requiredConfirmations: minConfirmations,
+	            hash: confirmed.hash,
+	            paymentId: job.paymentId || job.txId,
+	            clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
+	            createdAt: job.createdAt || undefined
+	          },
+	          { ttlSeconds: config.statusTtlSeconds, keyPrefix: config.keyPrefix }
+	        );
+	      } catch (err) {
+	        watcherLogger.warn('Failed to refresh CONFIRMING status after webhook failure', { key, ticker, error: err.message });
+	      }
       watcherLogger.warn('Webhook not accepted, job retained', {
         key,
         hash: confirmed.hash,
         ticker,
-        paymentId: payload.paymentId
+        paymentId: payload.paymentId,
+        webhookAttempts,
+        webhookNextAttemptAt
       });
     }
   }

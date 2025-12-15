@@ -151,8 +151,8 @@ The server watches Redis for pending deposit jobs and pushes a webhook once a tr
 
 **Status values & fields**
 - `PENDING`: job created, no deposit seen yet.
-- `CONFIRMING`: deposit seen but confirmations < minConf (shows current `confirmations`, `hash`, and `requiredConfirmations`).
-- `COMPLETED`: confirmations reached; webhook sent.  
+- `CONFIRMING`: deposit seen but not yet completed (shows `confirmations`, `hash`, and `requiredConfirmations`).
+- `COMPLETED`: confirmations reached; webhook delivered.  
   Status includes `paidAmount`, `paidAmountAtomic`, `effectiveAmount`, `effectiveAmountAtomic`, `feeAtomic`, plus `paymentId`, `hash`, `confirmations`, `clientReference`, `address`. (No consolidation tx/error, no expectedAmount.)
 
 **Dynamic confirmations**
