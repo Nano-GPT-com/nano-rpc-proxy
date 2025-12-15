@@ -60,7 +60,7 @@ const truncateText = (value, maxLen = 500) => {
 const computeWebhookBackoffDelayMs = (attempts, config) => {
   const baseMs = asNumber(config.webhookBackoffBaseMs, 1000);
   const factor = asNumber(config.webhookBackoffFactor, 2);
-  const maxMs = asNumber(config.webhookBackoffMaxMs, 5 * 60 * 1000);
+  const maxMs = asNumber(config.webhookBackoffMaxMs, 20 * 60 * 1000);
 
   let delay = baseMs * Math.pow(factor, Math.max(0, attempts));
   delay = Math.min(delay, maxMs);
