@@ -198,12 +198,6 @@ const STATUS_RATE_LIMIT_WINDOW_MS = parsePositiveInt(
   5 * 60 * 1000
 );
 const STATUS_RATE_LIMIT_MAX = parsePositiveInt(process.env.STATUS_RATE_LIMIT_MAX, 600);
-const STATUS_CACHE_TTL_MS = parsePositiveInt(
-  process.env.STATUS_CACHE_TTL_MS,
-  Math.min(5000, watcherConfig.intervalMs)
-);
-
-const statusCache = new Map();
 
 // Rate limiting for public access only
 const publicRateLimit = createRateLimit(
@@ -398,16 +392,6 @@ app.get('/api/transaction/status/:ticker/:paymentId', statusRateLimit, async (re
 
     const statusKey = `${watcherConfig.keyPrefix}:transaction:status:${ticker}:${paymentId}`;
 
-    const cached = statusCache.get(statusKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      if (watcherConfig.logLevel === 'debug') {
-        console.log('Status lookup cache hit', { ticker, paymentId });
-      }
-      return res.json(cached.value);
-    }
-    if (cached) {
-      statusCache.delete(statusKey);
-    }
     let rawStatus = null;
     try {
       rawStatus = await kvClient.get(statusKey);
@@ -429,13 +413,6 @@ app.get('/api/transaction/status/:ticker/:paymentId', statusRateLimit, async (re
         });
       }
       return res.status(404).json({ error: 'Transaction not found' });
-    }
-
-    if (STATUS_CACHE_TTL_MS > 0) {
-      statusCache.set(statusKey, {
-        value: status,
-        expiresAt: Date.now() + STATUS_CACHE_TTL_MS
-      });
     }
 
     if (watcherConfig.logLevel !== 'error') {
