@@ -192,21 +192,43 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
     return [];
   }
 
-  const txsPayload = {
+  // First: get current height via get_wallet_info
+  const heightPayload = {
     jsonrpc: '2.0',
-    id: `watcher-${Date.now()}`,
-    method: 'get_recent_txs_and_info2',
-    params: {
-      offset: 0,
-      count: 1000,
-      exclude_mining_txs: true,
-      exclude_unconfirmed: false,
-      order: 'FROM_END_TO_BEGIN',
-      update_provision_info: true
-    }
+    id: `wallet-info-${Date.now()}`,
+    method: 'get_wallet_info',
+    params: {}
   };
 
-  const txsResp = await axios.post(config.zanoRpcUrl, txsPayload, {
+  const heightResp = await axios.post(config.zanoRpcUrl, heightPayload, {
+    auth: config.zanoRpcUser
+      ? {
+          username: config.zanoRpcUser,
+          password: config.zanoRpcPassword || ''
+        }
+      : undefined,
+    timeout: Math.max(config.webhookTimeoutMs, 8000),
+    validateStatus: () => true
+  });
+
+  if (heightResp.status >= 400 || heightResp.data?.error) {
+    throw rpcError(
+      `Zano RPC error ${heightResp.status}: ${heightResp.data?.error?.message || 'unknown'}`,
+      heightResp.data
+    );
+  }
+
+  const currentHeight = asNumber(heightResp.data?.result?.current_height, 0);
+
+  // Then: get payments (returns block_height)
+  const payPayload = {
+    jsonrpc: '2.0',
+    id: `watcher-${Date.now()}`,
+    method: 'get_payments',
+    params: { payment_id: paymentId }
+  };
+
+  const payResp = await axios.post(config.zanoRpcUrl, payPayload, {
     auth: config.zanoRpcUser
       ? {
           username: config.zanoRpcUser,
@@ -217,55 +239,43 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
     validateStatus: () => true
   });
 
-  if (txsResp.status >= 400 || txsResp.data?.error) {
+  if (payResp.status >= 400 || payResp.data?.error) {
     throw rpcError(
-      `Zano RPC error ${txsResp.status}: ${txsResp.data?.error?.message || 'unknown'}`,
-      txsResp.data
+      `Zano RPC error ${payResp.status}: ${payResp.data?.error?.message || 'unknown'}`,
+      payResp.data
     );
   }
 
-  const result = txsResp.data?.result || {};
-  const currentHeight = asNumber(result.pi?.curent_height, 0);
-  const transfers = result.transfers || [];
+  const payments = payResp.data?.result?.payments || [];
 
   const byHash = new Map();
-  for (const tx of transfers) {
-    if (tx.payment_id !== paymentId) continue;
-
-    const subtransfers = tx.subtransfers || [];
-    for (const sub of subtransfers) {
-      if (!sub.is_income) continue;
-
-      const height = asNumber(tx.height, 0);
-      const confirmations =
-        height > 0 && currentHeight > 0
-          ? Math.max(currentHeight - height + 1, 0)
-          : 0;
-
-      const entry = {
-        hash: tx.tx_hash,
-        amountAtomic: sub.amount,
-        confirmations,
-        address,
-        ticker
-      };
-
-      const existing = byHash.get(entry.hash);
-      if (!existing || confirmations > existing.confirmations) {
-        byHash.set(entry.hash, entry);
-      }
+  for (const p of payments) {
+    const height = asNumber(p.block_height, 0);
+    const confirmations =
+      height > 0 && currentHeight > 0
+        ? Math.max(currentHeight - height + 1, 0) // inclusive of mined block
+        : asNumber(p.confirmations, 0);
+    const entry = {
+      hash: p.tx_hash,
+      amountAtomic: p.amount,
+      confirmations,
+      address,
+      ticker
+    };
+    const existing = byHash.get(entry.hash);
+    if (!existing || confirmations > existing.confirmations) {
+      byHash.set(entry.hash, entry);
     }
   }
 
   const matches = Array.from(byHash.values());
 
-  watcherLogger.debug('RPC deposits (get_recent_txs_and_info2)', {
+  watcherLogger.debug('RPC deposits (get_payments + get_height)', {
     ticker,
     count: matches.length,
     hasPaymentId: Boolean(paymentId),
     currentHeight,
-    totalTransfers: transfers.length,
-    matchingPaymentId: transfers.filter((t) => t.payment_id === paymentId).length,
+    paymentIdsReturned: payments.length,
     confirmationsByHash: matches.map((m) => ({ hash: m.hash, confirmations: m.confirmations }))
   });
 
