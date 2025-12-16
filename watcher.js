@@ -218,7 +218,19 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
     );
   }
 
-  const currentHeight = asNumber(heightResp.data?.result?.current_height, 0);
+  const walletInfo = heightResp.data?.result || {};
+  const currentHeight = asNumber(walletInfo.current_height, 0);
+  const daemonHeight = asNumber(walletInfo.daemon_height, 0);
+  const isSynced = walletInfo.is_synchronized;
+
+  watcherLogger.debug('Wallet sync status', {
+    ticker,
+    paymentId,
+    walletHeight: currentHeight,
+    daemonHeight,
+    isSynced,
+    heightDiff: daemonHeight - currentHeight
+  });
 
   // Then: get payments (returns block_height)
   const payPayload = {
@@ -248,6 +260,17 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
 
   const payments = payResp.data?.result?.payments || [];
 
+  watcherLogger.debug('get_payments raw response', {
+    ticker,
+    paymentId,
+    statusCode: payResp.status,
+    hasError: Boolean(payResp.data?.error),
+    errorMessage: payResp.data?.error?.message,
+    paymentsCount: payments.length,
+    resultKeys: Object.keys(payResp.data?.result || {}),
+    fullResult: JSON.stringify(payResp.data?.result || {}).substring(0, 500)
+  });
+
   const byHash = new Map();
   for (const p of payments) {
     const height = asNumber(p.block_height, 0);
@@ -270,7 +293,7 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
 
   const matches = Array.from(byHash.values());
 
-  watcherLogger.debug('RPC deposits (get_payments + get_height)', {
+  watcherLogger.debug('RPC deposits (get_payments + get_wallet_info)', {
     ticker,
     count: matches.length,
     hasPaymentId: Boolean(paymentId),
