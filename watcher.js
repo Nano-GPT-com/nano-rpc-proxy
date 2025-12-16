@@ -913,6 +913,41 @@ const handleJob = async (kv, key, ticker, config) => {
   }
 };
 
+const refreshZanoWallet = async (config) => {
+  if (!config.zanoRpcUrl) return;
+
+  try {
+    const payload = {
+      jsonrpc: '2.0',
+      id: `refresh-${Date.now()}`,
+      method: 'refresh',
+      params: {}
+    };
+
+    const response = await axios.post(config.zanoRpcUrl, payload, {
+      auth: config.zanoRpcUser
+        ? {
+            username: config.zanoRpcUser,
+            password: config.zanoRpcPassword || ''
+          }
+        : undefined,
+      timeout: 30000,
+      validateStatus: () => true
+    });
+
+    if (response.status >= 400 || response.data?.error) {
+      watcherLogger.warn('Wallet refresh failed', {
+        status: response.status,
+        error: response.data?.error?.message
+      });
+    } else {
+      watcherLogger.debug('Wallet refreshed successfully');
+    }
+  } catch (error) {
+    watcherLogger.warn('Wallet refresh error', { error: error.message });
+  }
+};
+
 const processTickerJobs = async (kv, ticker, config) => {
   let cursor = '0';
   const pattern = `${config.keyPrefix}:deposit:${ticker}:*`;
@@ -959,6 +994,12 @@ const startDepositWatcher = (kv, config) => {
     if (!state.running) return;
 
     const started = Date.now();
+    
+    // Refresh Zano wallet to scan for new transactions
+    if (config.tickers.some(t => normalizeTicker(t) === 'zano')) {
+      await refreshZanoWallet(config);
+    }
+
     for (const tickerRaw of config.tickers) {
       const ticker = normalizeTicker(tickerRaw);
       const until = backoffUntil.get(ticker) || 0;
