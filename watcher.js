@@ -222,6 +222,7 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
   const currentHeight = asNumber(walletInfo.current_height, 0);
   const daemonHeight = asNumber(walletInfo.daemon_height, 0);
   const isSynced = walletInfo.is_synchronized;
+  const expectedAssetId = (config.assetIds?.[ticker] || '').trim();
 
   watcherLogger.debug('Wallet sync status', {
     ticker,
@@ -232,44 +233,53 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
     heightDiff: daemonHeight - currentHeight
   });
 
-  // Then: get payments (returns block_height)
-  const payPayload = {
-    jsonrpc: '2.0',
-    id: `watcher-${Date.now()}`,
-    method: 'get_payments',
-    params: { payment_id: paymentId }
-  };
+  let payments = [];
+  if (!expectedAssetId) {
+    // Then: get payments (returns block_height). Only safe for base coin deposits.
+    const payPayload = {
+      jsonrpc: '2.0',
+      id: `watcher-${Date.now()}`,
+      method: 'get_payments',
+      params: { payment_id: paymentId }
+    };
 
-  const payResp = await axios.post(config.zanoRpcUrl, payPayload, {
-    auth: config.zanoRpcUser
-      ? {
-          username: config.zanoRpcUser,
-          password: config.zanoRpcPassword || ''
-        }
-      : undefined,
-    timeout: Math.max(config.webhookTimeoutMs, 10000),
-    validateStatus: () => true
-  });
+    const payResp = await axios.post(config.zanoRpcUrl, payPayload, {
+      auth: config.zanoRpcUser
+        ? {
+            username: config.zanoRpcUser,
+            password: config.zanoRpcPassword || ''
+          }
+        : undefined,
+      timeout: Math.max(config.webhookTimeoutMs, 10000),
+      validateStatus: () => true
+    });
 
-  if (payResp.status >= 400 || payResp.data?.error) {
-    throw rpcError(
-      `Zano RPC error ${payResp.status}: ${payResp.data?.error?.message || 'unknown'}`,
-      payResp.data
-    );
+    if (payResp.status >= 400 || payResp.data?.error) {
+      throw rpcError(
+        `Zano RPC error ${payResp.status}: ${payResp.data?.error?.message || 'unknown'}`,
+        payResp.data
+      );
+    }
+
+    payments = payResp.data?.result?.payments || [];
+
+    watcherLogger.debug('get_payments raw response', {
+      ticker,
+      paymentId,
+      statusCode: payResp.status,
+      hasError: Boolean(payResp.data?.error),
+      errorMessage: payResp.data?.error?.message,
+      paymentsCount: payments.length,
+      resultKeys: Object.keys(payResp.data?.result || {}),
+      fullResult: JSON.stringify(payResp.data?.result || {}).substring(0, 500)
+    });
+  } else {
+    watcherLogger.debug('get_payments skipped (asset ticker)', {
+      ticker,
+      paymentId,
+      expectedAssetId
+    });
   }
-
-  const payments = payResp.data?.result?.payments || [];
-
-  watcherLogger.debug('get_payments raw response', {
-    ticker,
-    paymentId,
-    statusCode: payResp.status,
-    hasError: Boolean(payResp.data?.error),
-    errorMessage: payResp.data?.error?.message,
-    paymentsCount: payments.length,
-    resultKeys: Object.keys(payResp.data?.result || {}),
-    fullResult: JSON.stringify(payResp.data?.result || {}).substring(0, 500)
-  });
 
   const byHash = new Map();
   for (const p of payments) {
@@ -293,7 +303,6 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
 
   if (byHash.size === 0) {
     try {
-      const expectedAssetId = (config.assetIds?.[ticker] || '').trim();
       const recentPayload = {
         jsonrpc: '2.0',
         id: `recent-txs-${Date.now()}`,
