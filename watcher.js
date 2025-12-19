@@ -291,6 +291,91 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
     }
   }
 
+  if (byHash.size === 0) {
+    try {
+      const expectedAssetId = (config.assetIds?.[ticker] || '').trim();
+      const recentPayload = {
+        jsonrpc: '2.0',
+        id: `recent-txs-${Date.now()}`,
+        method: 'get_recent_txs_and_info2',
+        params: {
+          offset: 0,
+          count: 200,
+          exclude_mining_txs: true,
+          exclude_unconfirmed: false,
+          order: 'FROM_END_TO_BEGIN',
+          update_provision_info: true
+        }
+      };
+
+      const recentResp = await axios.post(config.zanoRpcUrl, recentPayload, {
+        auth: config.zanoRpcUser
+          ? {
+              username: config.zanoRpcUser,
+              password: config.zanoRpcPassword || ''
+            }
+          : undefined,
+        timeout: Math.max(config.webhookTimeoutMs, 10000),
+        validateStatus: () => true
+      });
+
+      if (recentResp.status < 400 && !recentResp.data?.error) {
+        const transfers = recentResp.data?.result?.transfers || [];
+        for (const tx of transfers) {
+          if (tx?.payment_id !== paymentId) continue;
+
+          const txHash = tx?.tx_hash;
+          const height = asNumber(tx?.height, 0);
+          const confirmations =
+            height > 0 && currentHeight > 0 ? Math.max(currentHeight - height + 1, 0) : 0;
+
+          const subtransfers = Array.isArray(tx?.subtransfers) ? tx.subtransfers : [];
+          for (const st of subtransfers) {
+            if (!st?.is_income) continue;
+            if (expectedAssetId && st?.asset_id !== expectedAssetId) continue;
+
+            const entry = {
+              hash: txHash,
+              amountAtomic: st.amount,
+              confirmations,
+              address,
+              ticker
+            };
+
+            if (!entry.hash || entry.amountAtomic === undefined || entry.amountAtomic === null) continue;
+
+            const existing = byHash.get(entry.hash);
+            if (!existing || confirmations > existing.confirmations) {
+              byHash.set(entry.hash, entry);
+            }
+          }
+        }
+
+        watcherLogger.debug('Fallback get_recent_txs_and_info2', {
+          ticker,
+          paymentId,
+          expectedAssetId: expectedAssetId || undefined,
+          transfersCount: transfers.length,
+          matchesCount: byHash.size
+        });
+      } else {
+        watcherLogger.warn('Fallback get_recent_txs_and_info2 failed', {
+          ticker,
+          paymentId,
+          expectedAssetId: expectedAssetId || undefined,
+          statusCode: recentResp.status,
+          errorMessage: recentResp.data?.error?.message
+        });
+      }
+    } catch (err) {
+      watcherLogger.warn('Fallback get_recent_txs_and_info2 error', {
+        ticker,
+        paymentId,
+        error: err.message
+      });
+    }
+  }
+
   const matches = Array.from(byHash.values());
 
   watcherLogger.debug('RPC deposits (get_payments + get_wallet_info)', {

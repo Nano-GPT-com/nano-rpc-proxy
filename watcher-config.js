@@ -46,6 +46,9 @@ const loadWatcherConfig = (overrides = {}) => {
       zano: parseNumber(process.env.ZANO_DECIMALS, 12),
       fusd: parseNumber(process.env.FUSD_DECIMALS, 12)
     },
+    assetIds: {
+      fusd: (process.env.FUSD_ASSET_ID || '').trim()
+    },
     kvUrl: process.env.KV_REST_API_URL || '',
     kvToken: process.env.KV_REST_API_TOKEN || '',
     zanoStatusUrl: overrides.zanoStatusUrl || process.env.ZANO_STATUS_URL || '',
