@@ -480,8 +480,14 @@ const fetchDeposits = async (address, ticker, config, paymentId) => {
 };
 
 const sendWebhook = async (payload, config) => {
+  const ticker = normalizeTicker(payload?.ticker || '');
+  const url = (config.webhookUrls?.[ticker] || config.webhookUrl || '').trim();
+  if (!url) {
+    return { ok: false, error: 'Webhook URL is not configured' };
+  }
+
   try {
-    const response = await axios.post(config.webhookUrl, payload, {
+    const response = await axios.post(url, payload, {
       timeout: config.webhookTimeoutMs,
       validateStatus: () => true,
       headers: {
@@ -1032,8 +1038,14 @@ const startDepositWatcher = (kv, config) => {
     return;
   }
 
-  if (!config.webhookUrl || !config.webhookSecret) {
-    watcherLogger.info('Deposit watcher disabled (missing WATCHER_WEBHOOK_URL or WATCHER_SHARED_SECRET).');
+  const hasAnyWebhookUrl =
+    Boolean((config.webhookUrl || '').trim()) ||
+    (config.webhookUrls && Object.values(config.webhookUrls).some((v) => Boolean((v || '').trim())));
+
+  if (!hasAnyWebhookUrl || !config.webhookSecret) {
+    watcherLogger.info(
+      'Deposit watcher disabled (missing webhook url or WATCHER_SHARED_SECRET).'
+    );
     return;
   }
 

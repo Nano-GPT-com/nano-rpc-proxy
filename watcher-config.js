@@ -24,6 +24,10 @@ const loadWatcherConfig = (overrides = {}) => {
     intervalMs: parseNumber(process.env.WATCHER_INTERVAL_MS, 15000),
     scanCount: parseNumber(process.env.WATCHER_SCAN_COUNT, 100),
     webhookUrl: process.env.WATCHER_WEBHOOK_URL || '',
+    webhookUrls: {
+      zano: process.env.WATCHER_WEBHOOK_URL_ZANO || '',
+      fusd: process.env.WATCHER_WEBHOOK_URL_FUSD || ''
+    },
     webhookSecret: process.env.WATCHER_SHARED_SECRET || '',
     webhookTimeoutMs: parseNumber(process.env.WATCHER_WEBHOOK_TIMEOUT_MS, 10000),
     webhookBackoffBaseMs: parseNumber(process.env.WATCHER_WEBHOOK_BACKOFF_BASE_MS, 1000),
