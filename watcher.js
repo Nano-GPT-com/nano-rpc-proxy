@@ -1,5 +1,6 @@
 const axios = require('axios');
 const fs = require('fs');
+const path = require('path');
 const util = require('util');
 const {
   getDepositJob,
@@ -9,7 +10,9 @@ const {
   readStatus,
   saveStatus,
   formatAtomicAmount,
-  toBigInt
+  toBigInt,
+  upsertDepositLedgerFirstSeen,
+  recordDepositLedgerWebhookResult
 } = require('./deposits');
 const { normalizeTicker } = require('./watcher-config');
 
@@ -45,6 +48,93 @@ const createLogger = (level = 'info', errorFile = '') => {
 };
 
 let watcherLogger = createLogger(process.env.WATCHER_LOG_LEVEL || 'info', process.env.WATCHER_LOG_ERROR_FILE || '');
+
+const safePathSegment = (value) => String(value || '').replace(/[^a-zA-Z0-9_.-]/g, '_');
+
+const readJsonFileIfExists = async (filePath) => {
+  try {
+    const raw = await fs.promises.readFile(filePath, 'utf8');
+    return JSON.parse(raw);
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return null;
+    throw err;
+  }
+};
+
+const writeJsonFileAtomic = async (filePath, value) => {
+  const dir = path.dirname(filePath);
+  await fs.promises.mkdir(dir, { recursive: true });
+  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  await fs.promises.writeFile(tmpPath, JSON.stringify(value), 'utf8');
+  await fs.promises.rename(tmpPath, filePath);
+};
+
+const persistDepositLedgerFirstSeen = async (kv, ticker, hash, data, config) => {
+  const mode = String(config.depositLedgerMode || '').toLowerCase();
+  if (!mode || mode === 'off' || mode === 'disabled' || mode === 'false' || mode === '0') return;
+
+  if (mode === 'disk') {
+    const baseDir = String(config.depositLedgerDir || '').trim();
+    if (!baseDir) return;
+    const t = safePathSegment(normalizeTicker(ticker));
+    const h = safePathSegment(hash);
+    const filePath = path.join(baseDir, 'deposit-ledger', t, `${h}.json`);
+    const nowIso = new Date().toISOString();
+    const existing = (await readJsonFileIfExists(filePath)) || {};
+    const next = { ...existing };
+
+    if (!next.firstSeenAt) next.firstSeenAt = nowIso;
+    next.lastSeenAt = nowIso;
+
+    if (!next.paymentId && data?.paymentId) next.paymentId = String(data.paymentId);
+    if (!next.clientReference && data?.clientReference) next.clientReference = String(data.clientReference);
+    if (!next.amountAtomic && data?.amountAtomic !== undefined) next.amountAtomic = String(data.amountAtomic);
+    if (!next.assetId && data?.assetId) next.assetId = String(data.assetId);
+
+    await writeJsonFileAtomic(filePath, next);
+    return;
+  }
+
+  await upsertDepositLedgerFirstSeen(
+    kv,
+    ticker,
+    hash,
+    data,
+    { ttlSeconds: config.depositLedgerTtlSeconds, keyPrefix: config.keyPrefix }
+  );
+};
+
+const persistDepositLedgerWebhookResult = async (kv, ticker, hash, webhook, config) => {
+  const mode = String(config.depositLedgerMode || '').toLowerCase();
+  if (!mode || mode === 'off' || mode === 'disabled' || mode === 'false' || mode === '0') return;
+
+  if (mode === 'disk') {
+    const baseDir = String(config.depositLedgerDir || '').trim();
+    if (!baseDir) return;
+    const t = safePathSegment(normalizeTicker(ticker));
+    const h = safePathSegment(hash);
+    const filePath = path.join(baseDir, 'deposit-webhooks', t, `${h}.json`);
+    const value = {
+      ticker: normalizeTicker(ticker),
+      hash,
+      lastAttemptAt: webhook?.attemptedAt ? String(webhook.attemptedAt) : String(Date.now()),
+      lastOk: Boolean(webhook?.ok),
+      lastStatusCode: webhook?.statusCode === undefined || webhook?.statusCode === null ? null : webhook.statusCode,
+      lastError: webhook?.error ? String(webhook.error) : '',
+      attempts: webhook?.attempts === undefined || webhook?.attempts === null ? null : webhook.attempts
+    };
+    await writeJsonFileAtomic(filePath, value);
+    return;
+  }
+
+  await recordDepositLedgerWebhookResult(
+    kv,
+    ticker,
+    hash,
+    webhook,
+    { ttlSeconds: config.depositLedgerTtlSeconds, keyPrefix: config.keyPrefix }
+  );
+};
 
 const asNumber = (value, fallback = 0) => {
   const num = Number(value);
@@ -492,7 +582,7 @@ const sendWebhook = async (payload, config) => {
   const ticker = normalizeTicker(payload?.ticker || '');
   const url = (config.webhookUrls?.[ticker] || config.webhookUrl || '').trim();
   if (!url) {
-    return { ok: false, error: 'Webhook URL is not configured' };
+    return { ok: false, error: 'Webhook URL is not configured', statusCode: null };
   }
 
   try {
@@ -507,7 +597,7 @@ const sendWebhook = async (payload, config) => {
 
     if (response.status >= 200 && response.status < 300) {
       watcherLogger.debug('Webhook delivered', { status: response.status, paymentId: payload.paymentId });
-      return { ok: true, error: '' };
+      return { ok: true, error: '', statusCode: response.status };
     }
 
     const errorText = truncateText(
@@ -517,13 +607,13 @@ const sendWebhook = async (payload, config) => {
       500
     );
     watcherLogger.error('Webhook failed', response.status, response.data);
-    return { ok: false, error: errorText };
+    return { ok: false, error: errorText, statusCode: response.status };
   } catch (error) {
     watcherLogger.warn('Webhook request error', {
       paymentId: payload?.paymentId,
       error: error.message
     });
-    return { ok: false, error: truncateText(error.message || 'request error', 500) };
+    return { ok: false, error: truncateText(error.message || 'request error', 500), statusCode: null };
   }
 };
 
@@ -583,6 +673,31 @@ const handleJob = async (kv, key, ticker, config) => {
   const best = deposits
     .slice()
     .sort((a, b) => asNumber(b.confirmations, 0) - asNumber(a.confirmations, 0))[0];
+
+  if (best && best.hash) {
+    const expectedAssetId = (config.assetIds?.[ticker] || '').trim();
+    try {
+      await persistDepositLedgerFirstSeen(
+        kv,
+        ticker,
+        best.hash,
+        {
+          paymentId: job.paymentId || job.txId,
+          clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
+          amountAtomic: best.amountAtomic,
+          assetId: expectedAssetId || undefined
+        },
+        config
+      );
+    } catch (err) {
+      watcherLogger.debug('Failed to persist deposit ledger entry', {
+        key,
+        ticker,
+        hash: best.hash,
+        error: err.message
+      });
+    }
+  }
 
   const dynamicMinConfirmations =
     best && best.amountAtomic !== undefined
@@ -862,9 +977,32 @@ const handleJob = async (kv, key, ticker, config) => {
       });
       return;
     } else {
+      const startedAt = Date.now();
       const webhookResult = await sendWebhook(payload, config);
       webhookOk = Boolean(webhookResult?.ok);
       payload.__webhookError = webhookResult?.error || '';
+      try {
+        await persistDepositLedgerWebhookResult(
+          kv,
+          ticker,
+          confirmed.hash,
+          {
+            attemptedAt: startedAt,
+            ok: webhookOk,
+            statusCode: webhookResult?.statusCode,
+            error: webhookResult?.error,
+            attempts: webhookAttempts + 1
+          },
+          config
+        );
+      } catch (err) {
+        watcherLogger.debug('Failed to persist webhook result to deposit ledger', {
+          key,
+          ticker,
+          hash: confirmed.hash,
+          error: err.message
+        });
+      }
     }
     if (webhookOk) {
       try {

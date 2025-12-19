@@ -14,9 +14,12 @@ services:
       - ZANO_RPC_URL=http://host.docker.internal:11212/json_rpc
       - ZANO_API_KEY=${ZANO_API_KEY}
       - WATCHER_LOG_ERROR_FILE=/app/errors/watcher-errors.log
+      - WATCHER_DEPOSIT_LEDGER_MODE=disk
+      - WATCHER_DEPOSIT_LEDGER_DIR=/watcher-ledger
     volumes:
       - .:/app
       - ./errors:/app/errors
+      - ./watcher-ledger:/watcher-ledger
     networks:
       - nano-network
     logging:

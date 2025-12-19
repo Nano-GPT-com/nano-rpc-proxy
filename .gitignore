@@ -13,3 +13,4 @@ coverage/
 *.seed
 *.pid.lock
 wallet-data/
+watcher-ledger/

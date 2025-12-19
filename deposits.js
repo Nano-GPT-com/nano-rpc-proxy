@@ -7,6 +7,8 @@ const buildJobKey = (ticker, id, prefix = DEFAULT_PREFIX) =>
 const buildSeenKey = (hash, prefix = DEFAULT_PREFIX) => `${prefix}:seen:${hash}`;
 const buildStatusKey = (ticker, txId, prefix = DEFAULT_PREFIX) =>
   `${prefix}:transaction:status:${normalizeTicker(ticker)}:${txId}`;
+const buildDepositLedgerKey = (ticker, hash, prefix = DEFAULT_PREFIX) =>
+  `${prefix}:deposit:ledger:${normalizeTicker(ticker)}:${hash}`;
 
 const toBigInt = (value) => {
   if (value === undefined || value === null) return null;
@@ -97,10 +99,75 @@ const saveStatus = async (kv, ticker, txId, status, { ttlSeconds, keyPrefix } = 
 const readStatus = async (kv, ticker, txId, keyPrefix) =>
   kv.getJson(buildStatusKey(ticker, txId, keyPrefix || DEFAULT_PREFIX));
 
+const upsertDepositLedgerFirstSeen = async (
+  kv,
+  ticker,
+  hash,
+  data,
+  { ttlSeconds, keyPrefix } = {}
+) => {
+  const key = buildDepositLedgerKey(ticker, hash, keyPrefix || DEFAULT_PREFIX);
+  const existing = await kv.hgetall(key);
+
+  const patch = {};
+  if (!existing || Object.keys(existing).length === 0) {
+    patch.firstSeenAt = new Date().toISOString();
+  } else if (!existing.firstSeenAt) {
+    patch.firstSeenAt = new Date().toISOString();
+  }
+
+  if (!existing.paymentId && data?.paymentId) patch.paymentId = String(data.paymentId);
+  if (!existing.clientReference && data?.clientReference) patch.clientReference = String(data.clientReference);
+  if (!existing.amountAtomic && data?.amountAtomic !== undefined) patch.amountAtomic = String(data.amountAtomic);
+  if (!existing.assetId && data?.assetId) patch.assetId = String(data.assetId);
+
+  patch.lastSeenAt = new Date().toISOString();
+
+  if (Object.keys(patch).length > 0) {
+    await kv.hset(key, patch);
+  }
+
+  if (ttlSeconds && Number.isFinite(ttlSeconds) && ttlSeconds > 0) {
+    await kv.expire(key, ttlSeconds);
+  }
+
+  return { key, patch };
+};
+
+const recordDepositLedgerWebhookResult = async (
+  kv,
+  ticker,
+  hash,
+  webhook,
+  { ttlSeconds, keyPrefix } = {}
+) => {
+  const key = buildDepositLedgerKey(ticker, hash, keyPrefix || DEFAULT_PREFIX);
+  const patch = {
+    webhookLastAttemptAt: webhook?.attemptedAt ? String(webhook.attemptedAt) : String(Date.now()),
+    webhookLastOk: webhook?.ok ? 'true' : 'false',
+    webhookLastStatusCode:
+      webhook?.statusCode === undefined || webhook?.statusCode === null
+        ? ''
+        : String(webhook.statusCode),
+    webhookLastError: webhook?.error ? String(webhook.error) : '',
+    webhookAttempts:
+      webhook?.attempts === undefined || webhook?.attempts === null ? '' : String(webhook.attempts)
+  };
+
+  await kv.hset(key, patch);
+
+  if (ttlSeconds && Number.isFinite(ttlSeconds) && ttlSeconds > 0) {
+    await kv.expire(key, ttlSeconds);
+  }
+
+  return { key, patch };
+};
+
 module.exports = {
   buildJobKey,
   buildSeenKey,
   buildStatusKey,
+  buildDepositLedgerKey,
   createDepositJob,
   getDepositJob,
   deleteDepositJob,
@@ -108,6 +175,8 @@ module.exports = {
   isSeen,
   saveStatus,
   readStatus,
+  upsertDepositLedgerFirstSeen,
+  recordDepositLedgerWebhookResult,
   formatAtomicAmount,
   toBigInt
 };

@@ -39,6 +39,9 @@ const loadWatcherConfig = (overrides = {}) => {
     seenTtlSeconds: parseNumber(process.env.WATCHER_SEEN_TTL_SECONDS, 4 * 60 * 60),
     jobTtlSeconds: parseNumber(process.env.WATCHER_JOB_TTL_SECONDS, 24 * 60 * 60),
     statusTtlSeconds: parseNumber(process.env.WATCHER_STATUS_TTL_SECONDS, 7 * 24 * 60 * 60),
+    depositLedgerMode: String(process.env.WATCHER_DEPOSIT_LEDGER_MODE || 'redis').trim().toLowerCase(),
+    depositLedgerDir: process.env.WATCHER_DEPOSIT_LEDGER_DIR || '',
+    depositLedgerTtlSeconds: parseNumber(process.env.WATCHER_DEPOSIT_LEDGER_TTL_SECONDS, 90 * 24 * 60 * 60),
     errorBackoffMs: parseNumber(process.env.WATCHER_ERROR_BACKOFF_MS, 30000),
     minConfirmations: {
       zano: parseNumber(process.env.WATCHER_MIN_CONFIRMATIONS_ZANO, 6),

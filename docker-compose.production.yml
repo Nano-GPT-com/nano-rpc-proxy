@@ -15,6 +15,10 @@ services:
       - API_KEY=${API_KEY}
       - ZANO_RPC_URL=${ZANO_RPC_URL:-http://127.0.0.1:11212/json_rpc}
       - ZANO_API_KEY=${ZANO_API_KEY}
+      - WATCHER_DEPOSIT_LEDGER_MODE=disk
+      - WATCHER_DEPOSIT_LEDGER_DIR=/watcher-ledger
+    volumes:
+      - ./watcher-ledger:/watcher-ledger
     network_mode: host  # Use host network in production for better performance
     logging:
       driver: "json-file"
