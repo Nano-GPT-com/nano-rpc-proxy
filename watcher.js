@@ -489,76 +489,6 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
   return matches;
 };
 
-const consolidateDeposit = async (ticker, deposit, config) => {
-  const rules = config.consolidation?.[ticker] || {};
-  if (!rules.enabled || !rules.address) {
-    watcherLogger.debug('Consolidation skipped (disabled or address missing)', {
-      ticker,
-      enabled: rules.enabled,
-      hasAddress: Boolean(rules.address)
-    });
-    return null;
-  }
-
-  const fee = Number.isFinite(rules.feeAtomic) ? rules.feeAtomic : 10000000000;
-  const amountAtomic = Number(deposit.amountAtomic || deposit.amount || 0);
-  const sendAmount = amountAtomic - fee;
-
-  if (sendAmount <= 0) {
-    watcherLogger.warn('Consolidation skipped (amount <= fee)', {
-      ticker,
-      amountAtomic,
-      fee
-    });
-    return null;
-  }
-
-  const payload = {
-    jsonrpc: '2.0',
-    id: `consolidate-${Date.now()}`,
-    method: 'transfer',
-    params: {
-      destinations: [
-        {
-          address: rules.address,
-          amount: sendAmount
-        }
-      ],
-      fee,
-      mixin: 3,
-      unlock_time: 0,
-      do_not_relay: false,
-      priority: 0
-    }
-  };
-
-  const response = await axios.post(config.zanoRpcUrl, payload, {
-    auth: config.zanoRpcUser
-      ? {
-          username: config.zanoRpcUser,
-          password: config.zanoRpcPassword || ''
-        }
-      : undefined,
-    timeout: Math.max(config.webhookTimeoutMs, 20000),
-    validateStatus: () => true
-  });
-
-  if (response.status >= 400 || response.data?.error) {
-    throw rpcError(
-      `Consolidation transfer failed ${response.status}: ${response.data?.error?.message || 'unknown'}`,
-      response.data
-    );
-  }
-
-  watcherLogger.debug('Consolidation transfer submitted', {
-    ticker,
-    amountAtomic: deposit.amountAtomic,
-    fee
-  });
-
-  return response.data?.result || response.data;
-};
-
 const fetchDeposits = async (address, ticker, config, paymentId) => {
   if (config.zanoStatusUrl) {
     try {
@@ -792,15 +722,6 @@ const handleJob = async (kv, key, ticker, config) => {
     confirmations: confirmed.confirmations,
     amountAtomic: confirmed.amountAtomic
   });
-
-  const rules = config.consolidation?.[ticker] || {};
-  const consolidationEnabled = Boolean(rules.enabled && rules.address);
-  const consolidationMinConf =
-    asNumber(rules.minConfirmations, undefined) ??
-    config.minConfirmations[ticker] ??
-    config.minConfirmations.zano ??
-    0;
-  const canConsolidateNow = consolidationEnabled && asNumber(confirmed.confirmations, 0) >= consolidationMinConf;
   const webhookSent = String(job.webhookSent || '').toLowerCase() === 'true';
   const webhookAttempts = asNumber(job.webhookAttempts, 0);
   const webhookNextAttemptAt = asNumber(job.webhookNextAttemptAt, 0);
@@ -817,7 +738,6 @@ const handleJob = async (kv, key, ticker, config) => {
   }
 
   const amountAtomic = confirmed.amountAtomic ?? confirmed.amount ?? '';
-  const amountAtomicNum = asNumber(amountAtomic, 0);
   const payload = {
     paymentId: job.txId,
     address: job.address,
@@ -834,57 +754,6 @@ const handleJob = async (kv, key, ticker, config) => {
     clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
     createdAt: job.createdAt || undefined
   };
-
-  const consolidationAttempted = String(job.consolidationAttempted || '').toLowerCase() === 'true';
-
-  let consolidationResult = null;
-  let consolidationError = null;
-  let updatedAfterConsolidation = false;
-
-  if (consolidationAttempted) {
-    watcherLogger.debug('Skipping consolidation (already attempted)', { key, ticker });
-  } else if (consolidationEnabled && !canConsolidateNow) {
-    watcherLogger.info('Consolidation deferred (not enough confirmations to spend)', {
-      key,
-      ticker,
-      confirmations: confirmed.confirmations,
-      required: consolidationMinConf
-    });
-  } else if (consolidationEnabled && canConsolidateNow) {
-    try {
-     consolidationResult = await consolidateDeposit(ticker, confirmed, config);
-     if (consolidationResult?.tx_hash) {
-        payload.consolidationTxId = consolidationResult.tx_hash;
-        watcherLogger.info('Consolidation completed', {
-          key,
-          ticker,
-          consolidationTxId: consolidationResult.tx_hash
-        });
-      }
-      if (rules.feeAtomic) {
-        payload.feeAtomic = rules.feeAtomic;
-        const netAtomic = amountAtomicNum - asNumber(rules.feeAtomic, 0);
-        payload.effectiveAmountAtomic = String(netAtomic);
-        payload.effectiveAmount = formatAtomicAmount(netAtomic, decimals) || '';
-      }
-      await kv.hset(key, {
-        consolidationAttempted: true,
-        consolidationTxId: consolidationResult?.tx_hash || ''
-      });
-      updatedAfterConsolidation = true;
-    } catch (error) {
-      consolidationError = error.message || 'unknown error';
-      watcherLogger.error(`Consolidation failed for ${key}:`, consolidationError);
-      await kv.hset(key, {
-        consolidationAttempted: true,
-        consolidationError
-      });
-    }
-  }
-
-  if (consolidationError) {
-    payload.consolidationError = consolidationError;
-  }
 
   let webhookOk = true;
   if (!webhookSent) {
@@ -1109,45 +978,9 @@ const handleJob = async (kv, key, ticker, config) => {
     }
   }
 
-  const canDelete =
-    webhookOk &&
-    (!consolidationEnabled || consolidationAttempted || canConsolidateNow) &&
-    (!consolidationEnabled || consolidationResult || !canConsolidateNow === false);
-
-  if (canDelete && webhookOk) {
+  if (webhookOk) {
     await markSeen(kv, confirmed.hash, config.seenTtlSeconds, config.keyPrefix);
     await deleteDepositJob(kv, key);
-  } else if (webhookSent && updatedAfterConsolidation) {
-    // Update status to reflect net amounts after consolidation even if job is retained
-    try {
-      await saveStatus(
-        kv,
-        ticker,
-        job.txId,
-        {
-	          status: 'COMPLETED',
-	          address: job.address,
-	          confirmations: asNumber(confirmed.confirmations, 0),
-	          requiredConfirmations: minConfirmations,
-	          hash: confirmed.hash,
-	          paymentId: job.paymentId || job.txId,
-	          clientReference: job.clientReference || job.sessionUUID || job.sessionId || undefined,
-	          paidAmount: formatAtomicAmount(confirmed.amountAtomic ?? confirmed.amount ?? '', decimals) || '',
-          paidAmountAtomic: String(confirmed.amountAtomic ?? confirmed.amount ?? ''),
-          effectiveAmount: payload.effectiveAmount || payload.amount,
-          effectiveAmountAtomic: payload.effectiveAmountAtomic || payload.amountAtomic,
-          feeAtomic: payload.feeAtomic || undefined
-        },
-        { ttlSeconds: config.statusTtlSeconds, keyPrefix: config.keyPrefix }
-      );
-      watcherLogger.info('Status updated post-consolidation (job retained)', {
-        key,
-        ticker,
-        paymentId: payload.paymentId
-      });
-    } catch (err) {
-      watcherLogger.warn('Failed to update status after consolidation', { key, ticker, error: err.message });
-    }
   }
 };
 
