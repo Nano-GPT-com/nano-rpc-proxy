@@ -51,7 +51,7 @@ const loadWatcherConfig = (overrides = {}) => {
     logErrorFile: process.env.WATCHER_LOG_ERROR_FILE || '',
     decimals: {
       zano: parseNumber(process.env.ZANO_DECIMALS, 12),
-      fusd: parseNumber(process.env.FUSD_DECIMALS, 12)
+      fusd: parseNumber(process.env.FUSD_DECIMALS, 4)
     },
     assetIds: {
       fusd: (process.env.FUSD_ASSET_ID || '').trim()
