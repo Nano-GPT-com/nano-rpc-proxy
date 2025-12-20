@@ -120,21 +120,21 @@ curl -X POST http://localhost:3000/zano \
 
 ## Zano/FUSD Deposit Watcher & Webhooks
 
-The server watches Redis for pending deposit jobs and pushes a webhook once a transaction is confirmed. Optional: auto-consolidate confirmed deposits to a treasury address. All identifiers are `paymentId`-only.
+The server watches Redis for pending deposit jobs and pushes a webhook once a transaction is confirmed. All identifiers are `paymentId`-only.
 
 **Env wiring**
 - `KV_REST_API_URL` / `KV_REST_API_TOKEN` (Upstash/Redis REST)
 - `WATCHER_TICKERS` (e.g., `zano,fusd`)
-- `WATCHER_WEBHOOK_URL` and `WATCHER_SHARED_SECRET` (header `X-Zano-Secret`)
+- `WATCHER_WEBHOOK_URL_ZANO` / `WATCHER_WEBHOOK_URL_FUSD` and `WATCHER_SHARED_SECRET` (header `X-Zano-Secret`)
+- Optional legacy fallback: `WATCHER_WEBHOOK_URL`
 - `WATCHER_INTERVAL_MS`, `WATCHER_SCAN_COUNT`, `WATCHER_JOB_TTL_SECONDS`, `WATCHER_SEEN_TTL_SECONDS`, `WATCHER_STATUS_TTL_SECONDS`
 - `WATCHER_MIN_CONFIRMATIONS_ZANO` / `WATCHER_MIN_CONFIRMATIONS_FUSD` (defaults before dynamic tiers apply)
 - `ZANO_RPC_URL` (wallet RPC for deposits)
-- `ZANO_DECIMALS`, `FUSD_DECIMALS`
-- Consolidation: `WATCHER_CONSOLIDATE_{ticker}=true`, `WATCHER_CONSOLIDATE_ADDRESS_{ticker}`, `WATCHER_CONSOLIDATE_FEE_{ticker}` (default fee 10_000_000_000 atomic)
+- `ZANO_DECIMALS`, `FUSD_DECIMALS` (FUSD uses 4 decimals)
 - `WATCHER_KEY_PREFIX` (default `zano`)
 
 **Keys in Redis**
-- Jobs: `${PREFIX}:deposit:${ticker}:${paymentId}` → `address`, `paymentId`, `expectedAmount`, `minConf`, `clientReference`, `createdAt`, consolidation flags.
+- Jobs: `${PREFIX}:deposit:${ticker}:${paymentId}` → `address`, `paymentId`, `expectedAmount`, `minConf`, `clientReference`, `createdAt`.
 - Status: `${PREFIX}:transaction:status:${ticker}:${paymentId}` → status JSON.
 - Seen: `${PREFIX}:seen:${txHash}` → dedupe once webhook succeeds.
 
@@ -146,14 +146,13 @@ The server watches Redis for pending deposit jobs and pushes a webhook once a tr
 - `GET /api/transaction/status/:ticker/:paymentId` — public polling.
 - `POST /api/transaction/callback/:ticker` — webhook handler (requires `X-Zano-Secret`). Watcher sends:  
   - `paymentId`, `address`, `confirmations`, `hash`, `ticker`, `clientReference`, `createdAt`  
-  - Amount fields: `paidAmount` / `paidAmountAtomic` (gross deposit), `effectiveAmount` / `effectiveAmountAtomic` (net after consolidation fee), `feeAtomic` when consolidation ran.  
-  - Consolidation internals (tx id / errors) are not included in the webhook or status.
+  - Amount fields: `paidAmount` / `paidAmountAtomic`, `effectiveAmount` / `effectiveAmountAtomic`, `feeAtomic`.
 
 **Status values & fields**
 - `PENDING`: job created, no deposit seen yet.
 - `CONFIRMING`: deposit seen but not yet completed (shows `confirmations`, `hash`, and `requiredConfirmations`).
 - `COMPLETED`: confirmations reached; webhook delivered.  
-  Status includes `paidAmount`, `paidAmountAtomic`, `effectiveAmount`, `effectiveAmountAtomic`, `feeAtomic`, plus `paymentId`, `hash`, `confirmations`, `clientReference`, `address`. (No consolidation tx/error, no expectedAmount.)
+  Status includes `paidAmount`, `paidAmountAtomic`, `effectiveAmount`, `effectiveAmountAtomic`, `feeAtomic`, plus `paymentId`, `hash`, `confirmations`, `clientReference`, `address`. (No expectedAmount.)
 
 **Dynamic confirmations**
 - On first deposit detection (PENDING → CONFIRMING), the watcher recalculates the required confirmations from the on-chain amount:
@@ -163,15 +162,15 @@ The server watches Redis for pending deposit jobs and pushes a webhook once a tr
 - The computed value is stored on the job as `minConf` and used for subsequent checks.
   Status JSON exposes this as `requiredConfirmations`.
 
-**Settlement note**: credit the user with `effectiveAmount` (net of the consolidation fee). `paidAmount` is the gross on-chain deposit.
+**Settlement note**: credit the user with `effectiveAmount`. `paidAmount` is the gross on-chain deposit.
 
 **Flow**
 1) Call `/api/transaction/create`; store `paymentId`, `address`, `client_reference`.
 2) User pays that address (integrated address embeds `paymentId` for zano).
 3) Watcher scans jobs:
    - If a deposit is seen below minConf → status `CONFIRMING`.
-   - Once ≥ minConf → optional consolidation (one attempt per job) → webhook → mark seen → delete job.
-   - If webhook fails, job is retained; consolidation is not retried.
+   - Once ≥ minConf → webhook → mark seen → delete job.
+   - If webhook fails, job is retained.
 4) Status endpoint always reflects latest stored state.
 
 **Examples**
@@ -193,7 +192,7 @@ The server watches Redis for pending deposit jobs and pushes a webhook once a tr
 **Watcher loop**
 - Scans `deposit:{ticker}:*` every `WATCHER_INTERVAL_MS` (`scanCount` batch).
 - Uses `ZANO_STATUS_URL` when set; otherwise wallet RPC `get_transfers`.
-- On confirm ≥ minConf: optional consolidation, webhook, mark seen, delete job; else status `CONFIRMING`.
+- On confirm ≥ minConf: webhook, mark seen, delete job; else status `CONFIRMING`.
 - Amounts formatted with configured decimals (default 12).
 
 ### Zano test script
