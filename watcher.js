@@ -431,7 +431,13 @@ const fetchViaRpc = async (address, ticker, config, paymentId) => {
           const subtransfers = Array.isArray(tx?.subtransfers) ? tx.subtransfers : [];
           for (const st of subtransfers) {
             if (!st?.is_income) continue;
-            if (expectedAssetId && st?.asset_id !== expectedAssetId) continue;
+            const subAssetId = (st?.asset_id || '').toString().trim();
+            if (expectedAssetId) {
+              if (subAssetId !== expectedAssetId) continue;
+            } else {
+              // Base coin ticker: ignore asset subtransfers (prevents FUSD being miscredited as ZANO).
+              if (subAssetId) continue;
+            }
 
             const entry = {
               hash: txHash,
